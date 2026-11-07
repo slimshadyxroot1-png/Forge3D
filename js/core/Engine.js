@@ -1,0 +1,101 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createGrid, updateGrid } from '../scene/Grid.js';
+
+export const snap = o => ({ p: o.position.toArray(), r: [o.rotation.x, o.rotation.y, o.rotation.z], s: o.scale.toArray() });
+export const restore = (o, t) => { o.position.fromArray(t.p); o.rotation.set(...t.r); o.scale.fromArray(t.s); };
+
+// the 3d viewport
+export class Engine {
+  shading = 'solid'; snapOn = false; snapInc = 0.5; orient = 'world'; camView = null; camLock = true; camZoom = 1; camAspect = 16 / 9; brushing = false; space = false; offMeshOrbit = true; pivot = null; environment = 'none'; envBackground = false; projection = 'persp'; tool = 'move'; sel = null;
+  constructor(host) {
+    this.host = host;
+    const r = this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    r.setPixelRatio(Math.min(devicePixelRatio, 2)); host.appendChild(r.domElement);
+    const s = this.scene = new THREE.Scene(); s.background = new THREE.Color(0x3d3d3d);
+    this.world = new THREE.Group(); s.add(this.world);
+    // the viewport fill light
+    // It is not a lighting mode. Real lights are objects in the scene
+    const fill = this.fill = new THREE.Group(); s.add(fill);
+    this.fillHemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.2);
+    this.fillHead = new THREE.DirectionalLight(0xffffff, 1.6); // follows the camera
+    this.fillHemi.position.set(0, 0, 1); // sky is up, and up is Z
+    fill.add(this.fillHemi, this.fillHead, this.fillHead.target);
+    this.grid = createGrid(); s.add(this.grid);
+    this.persp = new THREE.PerspectiveCamera(40, 1, .1, 1000);
+    this.ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
+    for (const c of [this.persp, this.ortho]) c.up.set(0, 0, 1);
+    this.persp.position.set(8, -8, 6); this.camera = this.persp;
+    const o = this.orbit = new OrbitControls(this.camera, r.domElement);
+    // left drag orbits, right drag pans, wheel zooms
+    o.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
+    o.addEventListener('change', () => {
+      this.invalidate(); this.onCamera?.();
+    });
+    this.box = new THREE.BoxHelper(new THREE.Object3D(), 0xe87d0d); this.box.visible = false; s.add(this.box);
+    const dom = r.domElement;
+// capture, so this runs before the orbit controls read the mouse
+    dom.addEventListener('pointerdown', e => { if (e.button === 0) this._d = { x: e.clientX, y: e.clientY, a: null }; });
+    dom.addEventListener('pointerup', e => {
+      const d = this._d; this._d = null;
+      if (e.button === 0 && d && !d.a && !this.brushing && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) this.onPick?.(this.pick(e));
+    });
+    new ResizeObserver(() => { this.fit(); this.invalidate(); }).observe(host);
+    this.applyShading();
+    this.fit(); this.invalidate();
+  }
+  fit() {
+    const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1, a = w / h;
+    this.renderer.setSize(w, h);
+    this.persp.aspect = a; this.persp.updateProjectionMatrix();
+    const hh = this.camera.position.distanceTo(this.orbit.target) * Math.tan(this.persp.fov * Math.PI / 360), c = this.ortho;
+    c.left = -hh * a; c.right = hh * a; c.top = hh; c.bottom = -hh; c.updateProjectionMatrix();
+  }
+  invalidate() { if (this._q) return; this._q = requestAnimationFrame(() => { this._q = 0; this.render(); }); }
+  render() {
+    this.updateFill();
+    const s = this.sel; this.box.visible = !!s && s.visible;
+    if (this.box.visible) this.box.setFromObject(s);
+    updateGrid(this.grid, this.camera, this.orbit.target);
+    this.renderer.render(this.scene, this.camera);
+  }
+  pick(e) {
+    const rc = this._rc ||= new THREE.Raycaster(), b = this.renderer.domElement.getBoundingClientRect();
+    rc.setFromCamera(new THREE.Vector2((e.clientX - b.left) / b.width * 2 - 1, -(e.clientY - b.top) / b.height * 2 + 1), this.camera);
+    let o = rc.intersectObjects(this.world.children.filter(c => c.visible), true)[0]?.object;
+    while (o && o.parent !== this.world) o = o.parent;
+    return o || null;
+  }
+  setSelection(o) { this.sel = o; this.invalidate(); }
+  sync() { this.invalidate(); }
+  // 'wire', 'solid', 'xray', 'material' or 'rendered'
+  setShading(m) { this.shading = m; this.applyShading(); }
+  applyShading() {
+    this.fill.visible = ['wire', 'solid', 'xray'].includes(this.shading);
+    const x = this.shading === 'xray';
+    this.world.traverse(o => { if (!o.isMesh) return; const m = o.material;
+      m.wireframe = this.shading === 'wire'; m.transparent = x; m.opacity = x ? .4 : 1; m.depthWrite = !x; m.needsUpdate = true; });
+    this.invalidate();
+  }
+  frameAll() { if (this.world.children.length) this.frame(this.world); }
+  // the viewport fill light follows the camera. It gets weaker once the scene has its own lights,
+  // so the lights you place are what you see
+  updateFill() {
+    if (!this.fill.visible) return;
+    const lit = this.world.children.some(o => o.isLight && o.visible), k = lit ? 0.4 : 1;
+    this.fillHemi.intensity = 1.2 * k;
+    this.fillHead.intensity = 1.6 * k;
+    this.fillHead.position.copy(this.camera.position);
+    this.fillHead.target.position.copy(this.orbit.target);
+  }
+
+  // camera view
+
+  frame(o) {
+    const b = new THREE.Box3().setFromObject(o), c = b.getCenter(new THREE.Vector3());
+    const d = Math.max(b.getSize(new THREE.Vector3()).length() * 1.6, 2);
+    const off = this.camera.position.clone().sub(this.orbit.target).setLength(d);
+    this.orbit.target.copy(c); this.camera.position.copy(c).add(off); this.camera.zoom = 1;
+    this.camera.updateProjectionMatrix(); this.orbit.update(); this.fit(); this.invalidate();
+  }
+}

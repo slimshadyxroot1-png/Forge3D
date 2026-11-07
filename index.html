@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forge3D</title>
+  <link rel="icon" href="icons/favicon.ico" sizes="any">
+
+  <link rel="stylesheet" href="css/app.css">
+
+  <!-- Three.js -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+
+<body>
+
+  <!-- TOP BAR -->
+  <header id="top">
+    <span class="logo">Forge3D</span>
+
+    <div class="menu">
+      <span>Edit</span>
+      <div class="dd">
+        <a data-act="undo">Undo <kbd>Ctrl Z</kbd></a>
+        <a data-act="redo">Redo <kbd>Ctrl Shift Z</kbd></a>
+      </div>
+    </div>
+
+  </header>
+
+  <!-- MAIN WORKSPACE -->
+  <main>
+
+    <!-- 3D viewport -->
+    <section id="vp">
+      <!-- Viewport header -->
+      <div id="vph">
+
+        <!-- Add menu -->
+        <div class="menu" id="addm">
+          <span>Add</span>
+          <div class="dd" id="adddd"></div>
+        </div>
+
+        <div class="menu objonly">
+          <span>Object</span>
+          <div class="dd">
+            <a data-act="duplicate">Duplicate Objects <kbd>Shift D</kbd></a>
+            <a data-act="delete">Delete <kbd>X</kbd></a>
+            <a data-act="hide">Hide <kbd>H</kbd></a>
+          </div>
+        </div>
+
+        <span class="grow"></span>
+
+        <!-- Shading buttons -->
+        <button class="vb" data-act="xray" data-arg="x" title="Toggle X-Ray (Alt Z)">
+          <svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="8" height="8" fill="none" stroke="currentColor"/><rect x="5.5" y="5.5" width="8" height="8" fill="currentColor" fill-opacity=".35" stroke="currentColor"/></svg>
+        </button>
+        <span class="vgroup">
+          <button class="vb" data-act="shade" data-arg="wire" title="Wireframe">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor"/><ellipse cx="8" cy="8" rx="2.5" ry="5.5" fill="none" stroke="currentColor"/><path d="M2.5 8h11" stroke="currentColor"/></svg>
+          </button>
+          <button class="vb" data-act="shade" data-arg="solid" title="Solid">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="currentColor"/></svg>
+          </button>
+        </span>
+      </div>
+
+      <!-- Three.js canvas is inserted here -->
+      <div id="viewport"></div>
+
+    </section>
+
+    <!-- Right side: Outliner and Properties -->
+
+    <aside id="side">
+      <div class="panel" id="panel-outliner">
+        <h3>Outliner</h3>
+        <div id="outliner"></div>
+      </div>
+
+    </aside>
+
+  </main>
+
+  <!-- STATUS BAR -->
+  <footer id="status">
+    <span id="hint"></span>
+    <span id="stat"></span>
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+
+</html>
