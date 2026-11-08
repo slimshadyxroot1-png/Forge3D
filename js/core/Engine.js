@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { createGrid, updateGrid } from '../scene/Grid.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 export const snap = o => ({ p: o.position.toArray(), r: [o.rotation.x, o.rotation.y, o.rotation.z], s: o.scale.toArray() });
 export const restore = (o, t) => { o.position.fromArray(t.p); o.rotation.set(...t.r); o.scale.fromArray(t.s); };
@@ -15,12 +16,17 @@ export class Engine {
     r.setPixelRatio(Math.min(devicePixelRatio, 2)); host.appendChild(r.domElement);
     const s = this.scene = new THREE.Scene(); s.background = new THREE.Color(0x3d3d3d);
     this.world = new THREE.Group(); s.add(this.world);
+    // light icons are lines
+    this._rc = new THREE.Raycaster(); this._rc.params.Line.threshold = 0.12;
     // the viewport fill light
     const fill = this.fill = new THREE.Group(); s.add(fill);
     this.fillHemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.2);
     this.fillHead = new THREE.DirectionalLight(0xffffff, 1.6); // follows the camera
     this.fillHemi.position.set(0, 0, 1); // sky is up, and up is Z
     fill.add(this.fillHemi, this.fillHead, this.fillHead.target);
+    r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
+    // the World: light that comes from everywhere
+    this.worldLight = new THREE.HemisphereLight(0x808080, 0x808080, 3); this.worldLight.position.set(0, 0, 1); s.add(this.worldLight);
     this.grid = createGrid(); s.add(this.grid);
     this.persp = new THREE.PerspectiveCamera(40, 1, .1, 1000);
     this.ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
@@ -94,12 +100,51 @@ export class Engine {
   setShading(m) { this.shading = m; this.applyShading(); }
   applyShading() {
     this.fill.visible = ['wire', 'solid', 'xray'].includes(this.shading);
+    this.syncAutoEnv();
     const x = this.shading === 'xray';
     this.world.traverse(o => { if (!o.isMesh) return; const m = o.material;
       m.wireframe = this.shading === 'wire'; m.transparent = x; m.opacity = x ? .4 : 1; m.depthWrite = !x; m.needsUpdate = true; });
     this.invalidate();
   }
   frameAll() { if (this.world.children.length) this.frame(this.world); }
+  setEnvironment(kind, file) {
+    this.pmrem ||= new THREE.PMREMGenerator(this.renderer);
+    const use = tex => {
+      if (!this._autoEnv) this.scene.environment?.dispose();
+      this._autoEnv = false;
+      this.scene.environment = tex;
+      this.environment = tex ? kind : 'none';
+      this.syncAutoEnv();
+      this.updateBackground();
+      this.invalidate();
+    };
+    if (kind === 'room') use(this.pmrem.fromScene(new RoomEnvironment(), 0.04).texture);
+    else use(null);
+  }
+
+  syncAutoEnv() {
+    const want = this.shading === 'material' && this.environment === 'none';
+    if (want && !this._autoEnv) {
+      this.pmrem ||= new THREE.PMREMGenerator(this.renderer);
+      this._room ||= this.pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      this.scene.environment = this._room;
+      this._autoEnv = true;
+    } else if (!want && this._autoEnv) {
+      this.scene.environment = null;
+      this._autoEnv = false;
+    }
+  }
+
+  toggleEnvBackground() {
+    this.envBackground = !this.envBackground;
+    this.updateBackground();
+    this.invalidate();
+  }
+
+  updateBackground() {
+    this.scene.background = this.envBackground && this.scene.environment ? this.scene.environment : new THREE.Color(0x3d3d3d);
+  }
+
   // the viewport fill light follows the camera
   updateFill() {
     if (!this.fill.visible) return;

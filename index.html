@@ -134,7 +134,21 @@
           <button class="vb" data-act="shade" data-arg="solid" title="Solid">
             <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="currentColor"/></svg>
           </button>
+          <button class="vb" data-act="shade" data-arg="material" title="Material Preview">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor"/><path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor"/><circle cx="6" cy="6" r="1.4" fill="currentColor"/></svg>
+          </button>
+          <button class="vb" data-act="shade" data-arg="rendered" title="Rendered: what the final image looks like (uses your lights)">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor"/><circle cx="6" cy="6" r="2" fill="currentColor"/><circle cx="9.5" cy="9.5" r="3" fill="currentColor" fill-opacity=".35"/></svg>
+          </button>
         </span>
+        <div class="menu shpop">
+          <span title="Viewport Shading options">&#9662;</span>
+          <div class="dd right">
+            <a data-act="env" data-arg="none">World Lighting: None</a>
+            <a data-act="env" data-arg="room">World Lighting: Room</a>
+            <a data-act="envbg">Show Environment as Background</a>
+          </div>
+        </div>
       </div>
 
       <div id="vtext"></div>

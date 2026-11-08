@@ -1,6 +1,7 @@
 import { Engine, restore, snap } from './core/Engine.js';
 import { History } from './core/History.js';
 import { PRIMS, createPrimitive, uniqueName, disposeObject } from './scene/Primitives.js';
+import { LIGHT_NAMES, createLight, cloneLight, lightType } from './scene/Lights.js';
 import { Outliner } from './ui/Outliner.js';
 import { Properties } from './ui/Properties.js';
 import { bindShortcuts } from './ui/Shortcuts.js';
@@ -29,7 +30,8 @@ class App {
     const sub = (label, items) => `<div class="sub"><span>${label}<i>&#9656;</i></span><div class="dd">${items}</div></div>`;
     const MESH_ORDER = ['Plane', 'Cube', 'Circle', 'UV Sphere', 'Icosphere', 'Cylinder', 'Cone', 'Torus', 'Grid'];
     $('#adddd').innerHTML =
-      sub('Mesh', MESH_ORDER.filter(k => k in PRIMS).map(k => `<a data-act="add" data-arg="${k}">${k === 'Icosphere' ? 'Ico Sphere' : k}</a>`).join(''));
+      sub('Mesh', MESH_ORDER.filter(k => k in PRIMS).map(k => `<a data-act="add" data-arg="${k}">${k === 'Icosphere' ? 'Ico Sphere' : k}</a>`).join('')) +
+      sub('Light', Object.entries(LIGHT_NAMES).map(([k, n]) => `<a data-act="addlight" data-arg="${k}">${n}</a>`).join(''));
 
     // every button with data-act goes through act()
     document.addEventListener('click', ev => {
@@ -55,6 +57,9 @@ class App {
       duplicate: () => s && this.duplicate(s),
       delete: () => s && this.remove(s),
       add: () => this.add(arg),
+      addlight: () => this.addLight(arg),
+      env: () => e.setEnvironment(arg),
+      envbg: () => e.toggleEnvBackground(),
       snap: () => { e.setSnap(!e.snapOn, e.snapInc); },
       orient: () => e.setOrient(e.orient === 'local' ? 'world' : 'local'),
       xray: () => e.setShading(e.shading === 'xray' ? 'solid' : 'xray'),
@@ -107,7 +112,32 @@ class App {
 
   // node editors
 
+  // the starting light: a point light up and to the side
+  defaultLight() {
+    const l = createLight('point', 'Light');
+    l.position.set(4.08, 1.01, 5.9);
+    l.intensity = 150;
+    return l;
+  }
+
+  addLight(type) {
+    const l = createLight(type, uniqueName(this.engine.world, LIGHT_NAMES[type]));
+    this.insert(l);
+  }
+
+  // a light can't change its type
+  setLightType(l, type) {
+    if (type === lightType(l)) return;
+    const n = cloneLight(l, l.name, type, false), w = this.engine.world;
+    this.history.do({
+      do: () => { w.remove(l); w.add(n); this.select(n); },
+      undo: () => { w.remove(n); w.add(l); this.select(l); },
+      dispose: done => disposeObject(done ? l : n),
+    });
+  }
+
   duplicate(s) {
+    if (s.isLight) return this.insert(cloneLight(s, uniqueName(this.engine.world, s.name.replace(/\.\d+$/, ''))));
     const c = s.clone();
     // clone the geometry and material too
     c.traverse(m => {
@@ -151,6 +181,7 @@ class App {
 
   // a new scene starts with a camera and a light
   startScene() {
+    this.engine.world.add(this.defaultLight());
   }
   updateUI() {
     const e = this.engine;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { snap } from '../core/Engine.js';
+import { lightType, refreshGizmo } from '../scene/Lights.js';
 
 export class Properties {
   constructor(app, el) { this.a = app; this.el = el; this.cur = undefined; this.mode = null; }
@@ -24,6 +25,7 @@ export class Properties {
         <div class="grp"><label>Color</label><input type="color" id="mc"></div>
         ${slider('mr', 'Roughness', 0, 1)}${slider('mm', 'Metallic', 0, 1)}`;
     }
+    if (o.isLight) html += this.lightHtml(o);
     this.el.innerHTML = html;
     this.bind(o);
     this.sync();
@@ -40,6 +42,51 @@ export class Properties {
       this.bindLive(q('#mr'), () => String(m.roughness), v => { m.roughness = +v; });
       this.bindLive(q('#mm'), () => String(m.metalness), v => { m.metalness = +v; });
     }
+    if (o.isLight) this.bindLight(o);
+  }
+
+  lightHtml(l) {
+    const type = lightType(l);
+    const num = (id, title, step) =>
+      `<div class="grp"><label>${title}</label><input type="number" id="${id}" step="${step}" min="0"></div>`;
+    return `<h4>Light</h4>
+      <div class="grp"><label>Type</label><select id="lt">
+        <option value="point">Point</option>
+        <option value="sun">Sun</option>
+        <option value="spot">Spot</option>
+        <option value="area">Area</option></select></div>
+      <div class="grp"><label>Color</label><input type="color" id="lc"></div>
+      ${num('li', type === 'sun' ? 'Strength' : 'Power', 0.5)}
+      ${type === 'sun' || type === 'area' ? '' : num('ld', 'Range (0 = unlimited)', 1)}
+      ${type === 'spot' ? num('la', 'Spot Size (degrees)', 1) +
+        '<div class="grp"><label>Blend</label><input type="range" id="lp" min="0" max="1" step="0.01"></div>' : ''}
+      ${type === 'area' ? num('lw', 'Width', 0.1) + num('lh', 'Height', 0.1) : '<div class="grp"><label><input type="checkbox" id="ls">Cast Shadows</label></div>'}`;
+  }
+
+  bindLight(l) {
+    const q = id => this.el.querySelector(id), a = this.a, rad = THREE.MathUtils.degToRad;
+    q('#lt').onchange = e => a.setLightType(l, e.target.value);
+    this.bindLive(q('#lc'), () => '#' + l.color.getHexString(), v => l.color.set(v));
+    this.bindLive(q('#li'), () => String(l.intensity), v => { l.intensity = Math.max(0, +v || 0); });
+    if (q('#ld')) this.bindLive(q('#ld'), () => String(l.distance), v => { l.distance = Math.max(0, +v || 0); });
+    if (q('#la')) {
+      this.bindLive(q('#la'), () => String(Math.round(THREE.MathUtils.radToDeg(l.angle))), v => {
+        l.angle = rad(Math.min(89, Math.max(1, +v || 1)));
+        refreshGizmo(l); // the cone icon changes with the angle
+      });
+      this.bindLive(q('#lp'), () => String(l.penumbra), v => { l.penumbra = +v; });
+    }
+    if (q('#lw')) {
+      this.bindLive(q('#lw'), () => String(l.width), v => { l.width = Math.max(0.1, +v || 1); refreshGizmo(l); });
+      this.bindLive(q('#lh'), () => String(l.height), v => { l.height = Math.max(0.1, +v || 1); refreshGizmo(l); });
+    }
+    if (q('#ls')) q('#ls').onchange = e => {
+      const on = e.target.checked, old = l.castShadow;
+      a.history.do({
+        do: () => { l.castShadow = on; a.engine.invalidate(); },
+        undo: () => { l.castShadow = old; a.engine.invalidate(); },
+      });
+    };
   }
 
   // the object changes while dragging
@@ -72,6 +119,13 @@ export class Properties {
       put('#mc', '#' + o.material.color.getHexString());
       put('#mr', o.material.roughness);
       put('#mm', o.material.metalness);
+    }
+    if (o.isLight) {
+      put('#lt', lightType(o)); put('#lc', '#' + o.color.getHexString());
+      put('#li', o.intensity); put('#ld', o.distance); put('#lp', o.penumbra); put('#lw', o.width); put('#lh', o.height);
+      put('#la', Math.round(deg(o.angle)));
+      const shadow = this.el.querySelector('#ls');
+      if (shadow) shadow.checked = o.castShadow;
     }
     const tick = (id, v) => { const c = this.el.querySelector(id); if (c) c.checked = v; };
   }
