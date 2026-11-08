@@ -123,7 +123,7 @@ main.flip.no-side.no-tools,body.full main.flip{grid-template-columns:0 0 1fr 0}
 #toast{position:absolute;top:56px;left:50%;transform:translateX(-50%);max-width:80%;padding:6px 12px;background:#2b2b2b;border:1px solid #111;border-left:3px solid #e87d0d;color:#ddd;z-index:7;opacity:0;pointer-events:none;transition:opacity .15s}
 #toast.show{opacity:1}
 
-/* ---- Editor layout ---- */
+/* Editor layout */
 .hbtn{margin-left:8px;background:#4772b3;border-color:#2c4a78;color:#fff}.hbtn:hover{background:#5280c4}
 #vph .menu>span{padding:4px 8px;white-space:nowrap}
 #vph .modesel>span{background:#3d3d3d;border:1px solid #1a1a1a;border-radius:3px;margin-right:6px;padding:2px 8px}

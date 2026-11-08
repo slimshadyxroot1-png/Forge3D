@@ -1,8 +1,10 @@
-import { Engine } from './core/Engine.js';
+import { Engine, restore, snap } from './core/Engine.js';
 import { History } from './core/History.js';
 import { PRIMS, createPrimitive, uniqueName, disposeObject } from './scene/Primitives.js';
 import { Outliner } from './ui/Outliner.js';
+import { Properties } from './ui/Properties.js';
 import { bindShortcuts } from './ui/Shortcuts.js';
+import { Layout } from './ui/Layout.js';
 
 const $ = s => document.querySelector(s);
 
@@ -16,9 +18,12 @@ class App {
   constructor() {
     const e = this.engine = new Engine($('#viewport'));
     this.outliner = new Outliner(this, $('#outliner'));
+    this.props = new Properties(this, $('#props'));
     this.history = new History(() => this.refresh());
 
     e.onPick = o => this.select(o);
+    e.onTransform = () => this.props.sync();
+    e.onTransformEnd = (o, a, b) => this.commitTransform(o, a, b);
 
     // Add menu, laid out as: Mesh, Light, Camera
     const sub = (label, items) => `<div class="sub"><span>${label}<i>&#9656;</i></span><div class="dd">${items}</div></div>`;
@@ -32,8 +37,12 @@ class App {
       if (a) { this.act(a.dataset.act, a.dataset.arg); this.toggleAdd(false); }
     });
 
+    this.layout = new Layout();
+    e.onCamera = () => { this.updateViewText(); };
+    $('#snapinc').onchange = ev => e.setSnap(e.snapOn, +ev.target.value);
 
     bindShortcuts(this);
+    this.setTool('move');
     this.startScene();
     this.refresh();
   }
@@ -46,14 +55,22 @@ class App {
       duplicate: () => s && this.duplicate(s),
       delete: () => s && this.remove(s),
       add: () => this.add(arg),
+      snap: () => { e.setSnap(!e.snapOn, e.snapInc); },
+      orient: () => e.setOrient(e.orient === 'local' ? 'world' : 'local'),
       xray: () => e.setShading(e.shading === 'xray' ? 'solid' : 'xray'),
+      fullscreen: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()),
       hide: () => s && this.setVisible(s, false),
+      frameall: () => e.frameAll(),
+      layout: () => this.layout.toggle(arg),
+      tool: () => this.setTool(arg),
+      proj: () => e.setProjection(arg),
       shade: () => e.setShading(arg),
+      frame: () => s && e.frame(s),
     })[name]?.();
     this.updateUI();
   }
 
-  // Measure tool
+  // Measure tool: click two points
 
   toggleAdd(open) { $('#addm').classList.toggle('open', open); }
 
@@ -63,10 +80,17 @@ class App {
     this.refresh();
   }
 
+  setTool(t) {
+    this.tool = t;
+    if (t !== 'measure') { this.measure = []; }
+    this.engine.setTool(t);
+    this.updateUI();
+  }
+
   // show a short message in the status bar
   say(text) { this.msg = text; this.refresh(); this.msg = ''; }
 
-  // add an object to the scene (can be undone)
+  // add an object to the scene
   insert(o) {
     const w = this.engine.world;
     this.history.do({
@@ -85,7 +109,7 @@ class App {
 
   duplicate(s) {
     const c = s.clone();
-    // clone the geometry and material too, otherwise both objects share them
+    // clone the geometry and material too
     c.traverse(m => {
       if (m.isMesh) { m.geometry = m.geometry.clone(); m.material = m.material.clone(); }
     });
@@ -113,22 +137,37 @@ class App {
     this.history.do({ do: () => set(v), undo: () => set(!v) });
   }
 
+  // the object was already moved, we only save the undo step
+  commitTransform(o, a, b) {
+    this.history.push({ do: () => restore(o, b), undo: () => restore(o, a) });
+  }
+
+  // "User Perspective" text in the corner of the viewport
+  updateViewText() {
+    const e = this.engine;
+    $('#vtext').innerHTML = `User ${e.projection === 'ortho' ? 'Orthographic' : 'Perspective'}<br>` +
+      `<span>(1) Scene Collection | ${this.sel ? this.sel.name : ''}</span>`;
+  }
+
   // a new scene starts with a camera and a light
   startScene() {
   }
   updateUI() {
     const e = this.engine;
-    const on = { shade: e.shading, xray: e.shading === 'xray' ? 'x' : '' };
+    const on = { tool: this.tool, proj: e.projection, shade: e.shading, xray: e.shading === 'xray' ? 'x' : '', snap: e.snapOn ? 'x' : '', orient: e.orient === 'local' ? 'x' : '' };
     const undo = $('#undo-btn'), redo = $('#redo-btn');
     if (undo) undo.disabled = !this.history?.u.length;
     if (redo) redo.disabled = !this.history?.r.length;
     document.querySelectorAll('[data-act]').forEach(b => {
       if (b.dataset.act in on) b.classList.toggle('on', b.dataset.arg === on[b.dataset.act]);
     });
+    $('#orientbtn').textContent = e.orient === 'local' ? 'Local' : 'Global';
     $('#hint').textContent = 'Orbit: left drag | Right drag: pan | Wheel: zoom';
+    this.updateViewText();
   }
   refresh() {
     this.outliner.render();
+    this.props.render();
     this.updateUI();
 
     // count points and triangles for the status bar

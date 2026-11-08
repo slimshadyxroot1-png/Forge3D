@@ -3,7 +3,6 @@ import * as THREE from 'three';
 // rotate so the shape stands up along Z
 const zUp = g => g.rotateX(Math.PI / 2);
 
-// lots of segments so sculpting has enough points to push around
 export const PRIMS = {
   'Cube': () => new THREE.BoxGeometry(2, 2, 2, 24, 24, 24),
   'UV Sphere': () => new THREE.SphereGeometry(1, 64, 32),
@@ -28,8 +27,7 @@ export function createPrimitive(type, name) {
   return m;
 }
 
-// generates names like cube, cube.001, cube.002
-
+// Cube -> Cube.001 -> Cube.002
 export function uniqueName(root, base) {
   const used = new Set(root.children.map(o => o.name));
   if (!used.has(base)) return base;

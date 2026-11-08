@@ -50,7 +50,7 @@ const frag = `
     if (gl_FragColor.a < 0.003) discard;
   }`;
 
-// one flat square that follows the camera, so the grid never ends
+// one flat square that follows the camera
 export function createGrid() {
   const mat = new THREE.ShaderMaterial({
     vertexShader: vert,
@@ -66,7 +66,6 @@ export function createGrid() {
   return grid;
 }
 
-// move the square under the camera and set how far the fog starts and ends
 export function updateGrid(grid, camera, target) {
   const u = grid.material.uniforms, d = camera.position.distanceTo(target);
   let start, end;
@@ -78,7 +77,7 @@ export function updateGrid(grid, camera, target) {
     end = d * 25;
     start = end * 0.25;
   }
-  end = Math.min(end, 450); // the square is 1000 wide, so the edge is never seen
+  end = Math.min(end, 450); // the square is 1000 wide
   start = Math.min(start, end * 0.3);
   u.uStart.value = start;
   u.uEnd.value = end;

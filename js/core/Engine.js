@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { createGrid, updateGrid } from '../scene/Grid.js';
 
 export const snap = o => ({ p: o.position.toArray(), r: [o.rotation.x, o.rotation.y, o.rotation.z], s: o.scale.toArray() });
 export const restore = (o, t) => { o.position.fromArray(t.p); o.rotation.set(...t.r); o.scale.fromArray(t.s); };
 
-// the 3d viewport
+// the 3D viewport
 export class Engine {
   shading = 'solid'; snapOn = false; snapInc = 0.5; orient = 'world'; camView = null; camLock = true; camZoom = 1; camAspect = 16 / 9; brushing = false; space = false; offMeshOrbit = true; pivot = null; environment = 'none'; envBackground = false; projection = 'persp'; tool = 'move'; sel = null;
   constructor(host) {
@@ -15,7 +16,6 @@ export class Engine {
     const s = this.scene = new THREE.Scene(); s.background = new THREE.Color(0x3d3d3d);
     this.world = new THREE.Group(); s.add(this.world);
     // the viewport fill light
-    // It is not a lighting mode. Real lights are objects in the scene
     const fill = this.fill = new THREE.Group(); s.add(fill);
     this.fillHemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.2);
     this.fillHead = new THREE.DirectionalLight(0xffffff, 1.6); // follows the camera
@@ -32,10 +32,18 @@ export class Engine {
     o.addEventListener('change', () => {
       this.invalidate(); this.onCamera?.();
     });
+    const t = this.tc = new TransformControls(this.camera, r.domElement); s.add(t);
+    t.addEventListener('change', () => this.invalidate());
+    t.addEventListener('objectChange', () => this.onTransform?.());
+    t.addEventListener('dragging-changed', e => {
+      o.enabled = !e.value; const x = this.sel; if (!x) return;
+      if (e.value) this._b = snap(x);
+      else if (this._b) { const a = snap(x); if (JSON.stringify(a) !== JSON.stringify(this._b)) this.onTransformEnd?.(x, this._b, a); this._b = null; }
+    });
     this.box = new THREE.BoxHelper(new THREE.Object3D(), 0xe87d0d); this.box.visible = false; s.add(this.box);
     const dom = r.domElement;
-// capture, so this runs before the orbit controls read the mouse
-    dom.addEventListener('pointerdown', e => { if (e.button === 0) this._d = { x: e.clientX, y: e.clientY, a: null }; });
+// capture
+    dom.addEventListener('pointerdown', e => { if (e.button === 0) this._d = { x: e.clientX, y: e.clientY, a: t.axis }; });
     dom.addEventListener('pointerup', e => {
       const d = this._d; this._d = null;
       if (e.button === 0 && d && !d.a && !this.brushing && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) this.onPick?.(this.pick(e));
@@ -66,9 +74,23 @@ export class Engine {
     while (o && o.parent !== this.world) o = o.parent;
     return o || null;
   }
-  setSelection(o) { this.sel = o; this.invalidate(); }
-  sync() { this.invalidate(); }
-  // 'wire', 'solid', 'xray', 'material' or 'rendered'
+  setSelection(o) { this.sel = o; this.sync(); }
+  sync() {
+    const o = this.sel;
+    if (this.tool === 'select' || this.tool === 'measure') this.tc.detach();
+    else if (this.pivot) this.tc.attach(this.pivot);
+    else if (o && o.visible && !this.brushing) this.tc.attach(o);
+    else this.tc.detach();
+    this.invalidate();
+  }
+  setTool(t) { this.tool = t; if (t !== 'select' && t !== 'measure') this.tc.setMode({ move: 'translate', rotate: 'rotate', scale: 'scale' }[t]); this.sync(); }
+  setProjection(p) {
+    const old = this.camera, cam = p === 'ortho' ? this.ortho : this.persp; if (cam === old) return;
+    cam.position.copy(old.position); cam.quaternion.copy(old.quaternion); cam.zoom = 1;
+    this.camera = cam; this.projection = p; this.orbit.object = cam; this.tc.camera = cam;
+    this.fit(); this.orbit.update(); this.invalidate();
+  }
+  // 'wire', 'solid', 'xray', 'material'
   setShading(m) { this.shading = m; this.applyShading(); }
   applyShading() {
     this.fill.visible = ['wire', 'solid', 'xray'].includes(this.shading);
@@ -78,8 +100,7 @@ export class Engine {
     this.invalidate();
   }
   frameAll() { if (this.world.children.length) this.frame(this.world); }
-  // the viewport fill light follows the camera. It gets weaker once the scene has its own lights,
-  // so the lights you place are what you see
+  // the viewport fill light follows the camera
   updateFill() {
     if (!this.fill.visible) return;
     const lit = this.world.children.some(o => o.isLight && o.visible), k = lit ? 0.4 : 1;
@@ -88,6 +109,16 @@ export class Engine {
     this.fillHead.position.copy(this.camera.position);
     this.fillHead.target.position.copy(this.orbit.target);
   }
+
+  setSnap(on, inc = 0.5) {
+    this.snapOn = on; this.snapInc = inc;
+    this.tc.setTranslationSnap(on ? inc : null);
+    this.tc.setRotationSnap(on ? THREE.MathUtils.degToRad(15) : null);
+    this.tc.setScaleSnap(on ? 0.1 : null);
+  }
+
+  // Transform Orientation: 'world'
+  setOrient(space) { this.orient = space; this.tc.setSpace(space); this.invalidate(); }
 
   // camera view
 

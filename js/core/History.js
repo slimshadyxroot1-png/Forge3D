@@ -8,7 +8,7 @@ export class History {
     if (this.u.length > this.cap) this.u.shift().dispose?.(true);
     this.onChange();
   }
-  // forget everything (used when a project is opened)
+  // forget everything
   clear() {
     this.u.splice(0).forEach(c => c.dispose?.(true));
     this.r.splice(0).forEach(c => c.dispose?.(false));
