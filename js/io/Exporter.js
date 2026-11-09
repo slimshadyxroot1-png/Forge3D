@@ -1,203 +1,43 @@
-
-import * as THREE from 'three';
-
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { PLYExporter } from 'three/addons/exporters/PLYExporter.js';
-
 import { hideGizmos } from '../scene/Lights.js';
 
-// EXPORT CONFIGURATION
-
-const EXPORT_CONFIG = {
-  glb: {
-    extension: 'glb',
-    mimeType: 'model/gltf-binary',
-    binary: true,
-    exporter: GLTFExporter
-  },
-
-  gltf: {
-    extension: 'gltf',
-    mimeType: 'model/gltf+json',
-    binary: false,
-    exporter: GLTFExporter
-  },
-
-  obj: {
-    extension: 'obj',
-    mimeType: 'text/plain',
-    binary: false,
-    exporter: OBJExporter
-  },
-
-  stl: {
-    extension: 'stl',
-    mimeType: 'model/stl',
-    binary: true,
-    exporter: STLExporter
-  },
-
-  ply: {
-    extension: 'ply',
-    mimeType: 'application/octet-stream',
-    binary: true,
-    exporter: PLYExporter
-  }
-};
-
-// FILE UTILITIES
-
-function createBlob(data, mimeType) {
-  return new Blob([data], {
-    type: mimeType
-  });
-}
-
-function createDownloadURL(blob) {
-  return URL.createObjectURL(blob);
-}
-
-function downloadFile(data, filename, mimeType) {
-  const blob = createBlob(data, mimeType);
-  const url = createDownloadURL(blob);
-
-  const anchor = document.createElement('a');
-
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.style.display = 'none';
-
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 1000);
-}
-
-// SCENE TRANSFORMATION
-
-function prepareScene(world, format) {
-  const gizmos = hideGizmos(world);
-
-  const requiresYUp = !['stl', 'ply'].includes(format);
-
-  world.rotation.x = requiresYUp
-    ? -Math.PI / 2
-    : 0;
-
-  world.updateMatrixWorld(true);
-
-  return function restoreScene() {
-    world.rotation.x = 0;
-
-    world.updateMatrixWorld(true);
-
-    if (typeof gizmos === 'function') {
-      gizmos();
-    }
-  };
-}
-
-// EXPORT RESULT HANDLING
-
-function serializeResult(result, format) {
-  if (format === 'gltf') {
-    return JSON.stringify(result);
-  }
-
-  return result;
-}
-
-function getFilename(format) {
-  return `model.${format}`;
-}
-
-// EXPORT EXECUTION
-
-function executeExporter(world, format, config, restore) {
-  const exporter = new config.exporter();
-
-  const handleSuccess = result => {
-    try {
-      const data = serializeResult(result, format);
-
-      downloadFile(
-        data,
-        getFilename(format),
-        config.mimeType
-      );
-    } finally {
-      restore();
-    }
-  };
-
-  const handleError = error => {
-    console.error(`Failed to export ${format}:`, error);
-    restore();
-  };
-
-  try {
-    const options = {
-      binary: config.binary
-    };
-
-    if (format === 'stl') {
-      handleSuccess(exporter.parse(world, options));
-    } else if (format === 'obj') {
-      handleSuccess(exporter.parse(world));
-    } else {
-      exporter.parse(
-        world,
-        handleSuccess,
-        handleError,
-        options
-      );
-    }
-  } catch (error) {
-    handleError(error);
-    return false;
-  }
-
-  return true;
-}
-
-// PUBLIC API 
+// download some data as a file
 export function save(data, name, type) {
-  downloadFile(data, name, type);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([data], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+// glb, gltf, obj and stl
 export function exportScene(world, fmt) {
-  if (!world || !Array.isArray(world.children) || world.children.length === 0) {
-    console.warn('Cannot export an empty scene.');
-    return false;
+  if (!world.children.length) return false;
+  const showIcons = hideGizmos(world); // light icons are not part of the model
+
+  // our scene has Z up, glTF and OBJ want Y up
+  world.rotation.x = fmt === 'stl' || fmt === 'ply' ? 0 : -Math.PI / 2;
+  world.updateMatrixWorld(true);
+  const reset = () => { world.rotation.x = 0; world.updateMatrixWorld(true); showIcons(); };
+
+  if (fmt === 'stl') {
+    save(new STLExporter().parse(world, { binary: true }), 'model.stl', 'model/stl');
+    reset();
+  } else if (fmt === 'ply') {
+    new PLYExporter().parse(world, result => { save(result, 'model.ply', 'application/octet-stream'); reset(); }, { binary: true });
+  } else if (fmt === 'obj') {
+    save(new OBJExporter().parse(world), 'model.obj', 'text/plain');
+    reset();
+  } else {
+    // glTF works with a callback
+    new GLTFExporter().parse(world, result => {
+      if (fmt === 'glb') save(result, 'model.glb', 'model/gltf-binary');
+      else save(JSON.stringify(result), 'model.gltf', 'model/gltf+json');
+      reset();
+    }, err => { console.error(err); reset(); }, { binary: fmt === 'glb' });
   }
-
-  const format = String(fmt).toLowerCase();
-
-  const config = EXPORT_CONFIG[format];
-
-  if (!config) {
-    console.error(`Unsupported export format: ${format}`);
-    return false;
-  }
-
-  let restore;
-
-  try {
-    restore = prepareScene(world, format);
-  } catch (error) {
-    console.error('Failed to prepare scene:', error);
-    return false;
-  }
-
-  return executeExporter(
-    world,
-    format,
-    config,
-    restore
-  );
+  return true;
 }
