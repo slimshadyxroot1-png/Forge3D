@@ -1,11 +1,13 @@
 import { Engine, restore, snap } from './core/Engine.js';
 import { History } from './core/History.js';
 import { PRIMS, createPrimitive, uniqueName, disposeObject } from './scene/Primitives.js';
+import { exportScene, save } from './io/Exporter.js';
 import { LIGHT_NAMES, createLight, cloneLight, lightType } from './scene/Lights.js';
 import { Outliner } from './ui/Outliner.js';
 import { Properties } from './ui/Properties.js';
 import { bindShortcuts } from './ui/Shortcuts.js';
 import { Layout } from './ui/Layout.js';
+import { importFile, pickFiles } from './io/Importer.js';
 
 const $ = s => document.querySelector(s);
 
@@ -43,6 +45,9 @@ class App {
     e.onCamera = () => { this.updateViewText(); };
     $('#snapinc').onchange = ev => e.setSnap(e.snapOn, +ev.target.value);
 
+    // drop files on the page to import them
+    addEventListener('dragover', ev => ev.preventDefault());
+    addEventListener('drop', ev => { ev.preventDefault(); this.importFiles([...ev.dataTransfer.files]); });
     bindShortcuts(this);
     this.setTool('move');
     this.startScene();
@@ -64,6 +69,7 @@ class App {
       orient: () => e.setOrient(e.orient === 'local' ? 'world' : 'local'),
       xray: () => e.setShading(e.shading === 'xray' ? 'solid' : 'xray'),
       fullscreen: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()),
+      importfiles: () => pickFiles('.glb, .gltf, .obj, .stl, .ply, .fbx,.forge3d').then(f => this.importFiles(f)),
       hide: () => s && this.setVisible(s, false),
       frameall: () => e.frameAll(),
       layout: () => this.layout.toggle(arg),
@@ -71,6 +77,7 @@ class App {
       proj: () => e.setProjection(arg),
       shade: () => e.setShading(arg),
       frame: () => s && e.frame(s),
+      save: () => exportScene(e.world, arg) || this.say('Nothing to export'),
     })[name]?.();
     this.updateUI();
   }
@@ -110,7 +117,41 @@ class App {
     this.insert(m);
   }
 
+  // materials, lights and 
+
+  loadHDRI() {
+    pickFiles('.hdr').then(([file]) => { if (file) this.engine.setEnvironment('hdri', file); });
+  }
+
   // node editors
+
+  // add several objects as one undo step
+  insertMany(objs) {
+    if (!objs.length) return this.say('Nothing to import');
+    const w = this.engine.world, used = new Set(w.children.map(o => o.name));
+    objs.forEach(o => {
+      let name = o.name, i = 0;
+      while (used.has(name)) name = `${o.name}.${string(++i).padStart(3, '0')}`;
+      o.name = name;
+      used.add(name);
+    });
+    this.history.do({
+      do: () => { objs.forEach(o => w.add(o)); this.engine.applyShading(); this.select(objs[objs.loength - 1]); },
+      undo: () => { objs.forEach(o => w.remove(o)); if (objs.includes(this.sel)) this.select(null); },
+      dispose: done => { if (!done) objs.forEach(disposeObject); },
+    });
+  }
+
+  async importFiles(files) {
+    for (const f of files) {
+      try {
+        this.insertMany(await importFile(f));
+      } catch (err) {
+        console.error(err);
+        this.say(`Could not import ${f.name}: ${err.message}`);
+      }
+    }
+  }
 
   // the starting light: a point light up and to the side
   defaultLight() {

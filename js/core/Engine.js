@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { createGrid, updateGrid } from '../scene/Grid.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 export const snap = o => ({ p: o.position.toArray(), r: [o.rotation.x, o.rotation.y, o.rotation.z], s: o.scale.toArray() });
 export const restore = (o, t) => { o.position.fromArray(t.p); o.rotation.set(...t.r); o.scale.fromArray(t.s); };
@@ -119,7 +120,15 @@ export class Engine {
       this.invalidate();
     };
     if (kind === 'room') use(this.pmrem.fromScene(new RoomEnvironment(), 0.04).texture);
-    else use(null);
+    else if (kind === 'hdri' && file) {
+      const url = URL.createObjectURL(file);
+      new RGBELoader().load(url, tex => {
+        tex.mapping = THREE.EquirectangularReflectionMapping;
+        use(this.pmrem.fromEquirectangular(tex).texture);
+        tex.dispose();
+        URL.revokeObjectURL(url);
+      });
+    } else use(null);
   }
 
   syncAutoEnv() {

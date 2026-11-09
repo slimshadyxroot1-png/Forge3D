@@ -27,6 +27,32 @@
     <span class="logo">Forge3D</span>
 
     <div class="menu">
+      <span>File</span>
+      <div class="dd">
+        <div class="sub">
+          <span>Import<i>&#9656;</i></span>
+          <div class="dd">
+            <a data-act="importfiles">glTF 2.0 (.glb/.gltf)</a>
+            <a data-act="importfiles">Wavefront (.obj)</a>
+            <a data-act="importfiles">Stl (.stl)</a>
+            <a data-act="importfiles">Stanford PLY (.ply)</a>
+            <a data-act="importfiles">FBXZ (.fbx)</a>
+          </div>
+        </div>
+        <div class="sub">
+          <span>Export<i>&#9656;</i></span>
+          <div class="dd">
+            <a data-act="save" data-arg="glb">glTF 2.0 Binary (.glb)</a>
+            <a data-act="save" data-arg="gltf">glTF 2.0 (.gltf)</a>
+            <a data-act="save" data-ar="obj">Wavefront (.obj)</a>
+            <a data-act="save" data-arg="stl">Stl (.stl)</a>
+            <a data-act="save" data-arg="ply">Stanford PLY (.ply)</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="menu">
       <span>Edit</span>
       <div class="dd">
         <a data-act="undo">Undo <kbd>Ctrl Z</kbd></a>
@@ -146,6 +172,7 @@
           <div class="dd right">
             <a data-act="env" data-arg="none">World Lighting: None</a>
             <a data-act="env" data-arg="room">World Lighting: Room</a>
+            <a data-act="env" data-arg="hdri">World Lighting: HDRI (.hdr)...</a>
             <a data-act="envbg">Show Environment as Background</a>
           </div>
         </div>
