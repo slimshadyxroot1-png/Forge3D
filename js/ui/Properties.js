@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { snap } from '../core/Engine.js';
 import { lightType, refreshGizmo } from '../scene/Lights.js';
+import { fovFromLength, refreshCameraGizmo } from '../scene/Cameras.js';
 
 export class Properties {
   constructor(app, el) { this.a = app; this.el = el; this.cur = undefined; this.mode = null; }
@@ -25,6 +26,7 @@ export class Properties {
         <div class="grp"><label>Color</label><input type="color" id="mc"></div>
         ${slider('mr', 'Roughness', 0, 1)}${slider('mm', 'Metallic', 0, 1)}`;
     }
+    if (o.isCamera) html += this.cameraHtml();
     if (o.isLight) html += this.lightHtml(o);
     this.el.innerHTML = html;
     this.bind(o);
@@ -42,7 +44,29 @@ export class Properties {
       this.bindLive(q('#mr'), () => String(m.roughness), v => { m.roughness = +v; });
       this.bindLive(q('#mm'), () => String(m.metalness), v => { m.metalness = +v; });
     }
+    if (o.isCamera) this.bindCamera(o);
     if (o.isLight) this.bindLight(o);
+  }
+
+  cameraHtml() {
+    const num = (id, title, step) => `<div class="grp"><label>${title}</label><input type="number" id="${id}" step="${step}"></div>`;
+    return `<h4>Camera <span id="cstate"></span></h4>${num('cf', 'Focal Length (mm)', 1)}${num('cn', 'Clip Start', 0.1)}${num('cfar', 'Clip End', 10)}
+      <div class="grp btns"><button id="cact">Set Active</button><button id="cview">View Through</button><button id="calign">Align To View</button></div>`;
+  }
+
+  bindCamera(c) {
+    const q = id => this.el.querySelector(id), a = this.a;
+    this.bindLive(q('#cf'), () => String(c.userData.focal), v => {
+      c.userData.focal = Math.max(5, +v || 50);
+      c.fov = fovFromLength(c.userData.focal);
+      c.updateProjectionMatrix();
+      refreshCameraGizmo(c); // the pyramid changes with the lens
+    });
+    this.bindLive(q('#cn'), () => String(c.near), v => { c.near = Math.max(0.001, +v || 0.1); c.updateProjectionMatrix(); });
+    this.bindLive(q('#cfar'), () => String(c.far), v => { c.far = Math.max(c.near + 0.1, +v || 100); c.updateProjectionMatrix(); });
+    q('#cact').onclick = () => a.setActiveCamera(c);
+    q('#cview').onclick = () => { a.camActive = c; a.enterCameraView(); a.refresh(); };
+    q('#calign').onclick = () => a.alignCamera(c);
   }
 
   lightHtml(l) {
@@ -119,6 +143,11 @@ export class Properties {
       put('#mc', '#' + o.material.color.getHexString());
       put('#mr', o.material.roughness);
       put('#mm', o.material.metalness);
+    }
+    if (o.isCamera) {
+      put('#cf', o.userData.focal); put('#cn', o.near); put('#cfar', o.far);
+      const state = this.el.querySelector('#cstate');
+      if (state) state.textContent = this.a.activeCamera() === o ? '(active)' : '';
     }
     if (o.isLight) {
       put('#lt', lightType(o)); put('#lc', '#' + o.color.getHexString());

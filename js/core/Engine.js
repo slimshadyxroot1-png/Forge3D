@@ -37,8 +37,11 @@ export class Engine {
     // left drag orbits, right drag pans, wheel zooms
     o.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
     o.addEventListener('change', () => {
+      if (this.camView && this._orbiting && this.camLock) this._pushToCamera();
       this.invalidate(); this.onCamera?.();
     });
+    o.addEventListener('start', () => this.beginNav());
+    o.addEventListener('end', () => this.endNav());
     const t = this.tc = new TransformControls(this.camera, r.domElement); s.add(t);
     t.addEventListener('change', () => this.invalidate());
     t.addEventListener('objectChange', () => this.onTransform?.());
@@ -49,6 +52,12 @@ export class Engine {
     });
     this.box = new THREE.BoxHelper(new THREE.Object3D(), 0xe87d0d); this.box.visible = false; s.add(this.box);
     const dom = r.domElement;
+    // scroll wheel in camera view zooms the camera view
+    dom.addEventListener('wheel', e => {
+      if (!this.camView) return;
+      e.preventDefault();
+      this.zoomCameraView(e.deltaY > 0 ? 1 / 1.1 : 1.1);
+    }, { passive: false });
 // capture
     dom.addEventListener('pointerdown', e => { if (e.button === 0) this._d = { x: e.clientX, y: e.clientY, a: t.axis }; });
     dom.addEventListener('pointerup', e => {
@@ -68,8 +77,9 @@ export class Engine {
   }
   invalidate() { if (this._q) return; this._q = requestAnimationFrame(() => { this._q = 0; this.render(); }); }
   render() {
+    if (this.camView) this.syncCameraView();
     this.updateFill();
-    const s = this.sel; this.box.visible = !!s && s.visible;
+    const s = this.sel; this.box.visible = !!s && s.visible && s !== this.camView;
     if (this.box.visible) this.box.setFromObject(s);
     updateGrid(this.grid, this.camera, this.orbit.target);
     this.renderer.render(this.scene, this.camera);
@@ -86,12 +96,13 @@ export class Engine {
     const o = this.sel;
     if (this.tool === 'select' || this.tool === 'measure') this.tc.detach();
     else if (this.pivot) this.tc.attach(this.pivot);
-    else if (o && o.visible && !this.brushing) this.tc.attach(o);
+    else if (o && o.visible && !this.brushing && o !== this.camView) this.tc.attach(o);
     else this.tc.detach();
     this.invalidate();
   }
   setTool(t) { this.tool = t; if (t !== 'select' && t !== 'measure') this.tc.setMode({ move: 'translate', rotate: 'rotate', scale: 'scale' }[t]); this.sync(); }
   setProjection(p) {
+    if (this.camView) this.exitCameraView(false);
     const old = this.camera, cam = p === 'ortho' ? this.ortho : this.persp; if (cam === old) return;
     cam.position.copy(old.position); cam.quaternion.copy(old.quaternion); cam.zoom = 1;
     this.camera = cam; this.projection = p; this.orbit.object = cam; this.tc.camera = cam;
@@ -174,7 +185,121 @@ export class Engine {
   // Transform Orientation: 'world'
   setOrient(space) { this.orient = space; this.tc.setSpace(space); this.invalidate(); }
 
+  // World lighting from the render settings
+  setWorld(color, strength) {
+    this.worldLight.color.set(color || '#808080');
+    this.worldLight.groundColor.set(color || '#808080');
+    this.worldLight.intensity = (Number.isFinite(strength) ? strength : 1) * 3;
+    this.invalidate();
+  }
+
+  // used while making the final image: Rendered shading
+  finalLook() {
+    const prev = this.shading;
+    this.setShading('rendered');
+    return () => this.setShading(prev);
+  }
+
+  // called when the user starts moving the view
+  beginNav() {
+    if (!this.camView) return;
+    if (!this.camLock) return this.exitCameraView(false);
+    this._orbiting = true; this._cb = snap(this.camView);
+  }
+
+  endNav() {
+    if (!this._orbiting) return;
+    this._orbiting = false;
+    const c = this.camView, b = this._cb, a = c && snap(c); this._cb = null;
+    if (c && b && JSON.stringify(a) !== JSON.stringify(b)) this.onTransformEnd?.(c, b, a);
+  }
+
   // camera view
+
+  enterCameraView(cam) {
+    if (!this.camView) {
+      this._prev = { p: this.camera.position.clone(), q: this.camera.quaternion.clone(), t: this.orbit.target.clone(), proj: this.projection, zoom: this.camera.zoom };
+      this.setProjection('persp');
+    } else this.showCamIcon(this.camView, true);
+    const box = new THREE.Box3();
+    this.world.traverse(o => { if (o.isMesh && o.visible) box.expandByObject(o); });
+    cam.updateWorldMatrix(true, false);
+    const pos = cam.getWorldPosition(new THREE.Vector3());
+    this._camDist = Math.max(2, pos.distanceTo(box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3())));
+    this.camView = cam;
+    this.camZoom = 1;
+    this.orbit.enableZoom = false; // the wheel is handled by zoomCameraView()
+    this.syncCameraView();
+    this.sync();
+    this.onCamView?.(cam);
+    this.invalidate(); this.onCamera?.();
+  }
+
+  // leave the camera view
+  exitCameraView(restore = true) {
+    const cam = this.camView; if (!cam) return;
+    this.showCamIcon(cam, true);
+    this.camView = null; this._orbiting = false;
+    this.orbit.enableZoom = true;
+    this.persp.fov = 40; this.persp.near = .1; this.persp.far = 1000; this.persp.aspect = this.host.clientWidth / (this.host.clientHeight || 1);
+    this.persp.updateProjectionMatrix();
+    if (restore && this._prev) {
+      const v = this._prev;
+      this.persp.position.copy(v.p); this.persp.quaternion.copy(v.q); this.orbit.target.copy(v.t);
+      if (v.proj === 'ortho') this.setProjection('ortho');
+    }
+    this.orbit.update(); this.fit(); this.sync();
+    this.onFrame?.(null); this.onCamView?.(null);
+    this.invalidate(); this.onCamera?.();
+  }
+
+  showCamIcon(cam, on) { cam.children.forEach(c => { if (c.userData.gizmo) c.visible = on; }); }
+
+  // the scene camera is the master
+  syncCameraView() {
+    const c = this.camView, p = this.persp, W = this.host.clientWidth || 1, H = this.host.clientHeight || 1, ra = this.camAspect;
+    this.showCamIcon(c, false);
+    if (!this._orbiting) {
+      c.updateWorldMatrix(true, false);
+      c.matrixWorld.decompose(p.position, p.quaternion, p.scale);
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(p.quaternion);
+      this.orbit.target.copy(p.position).addScaledVector(fwd, this._camDist);
+    }
+    const fh = Math.min(H * 0.88, W * 0.88 / ra) * this.camZoom, fw = fh * ra;
+    p.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(c.fov) / 2) * H / fh));
+    p.near = c.near; p.far = c.far; p.aspect = W / H;
+    p.updateProjectionMatrix();
+    this.onFrame?.({ x: (W - fw) / 2, y: (H - fh) / 2, w: fw, h: fh });
+  }
+
+  // with Lock Camera to View the camera itself moves
+  _pushToCamera() {
+    const c = this.camView, p = this.persp;
+    c.position.copy(p.position); c.quaternion.copy(p.quaternion);
+    this._camDist = p.position.distanceTo(this.orbit.target);
+    this.onTransform?.();
+  }
+
+  zoomCameraView(f) {
+    const c = this.camView; if (!c) return;
+    if (!this.camLock) this.camZoom = Math.min(8, Math.max(0.25, this.camZoom * f));
+    else {
+      this._zb ||= snap(c);
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(c.quaternion), d = this._camDist, next = Math.max(0.2, d / f);
+      c.position.addScaledVector(fwd, d - next);
+      this._camDist = next;
+      this.onTransform?.();
+      // many wheel clicks in a row count as one undo step
+      clearTimeout(this._zt);
+      this._zt = setTimeout(() => {
+        const b = this._zb, a = snap(c); this._zb = null;
+        if (b && JSON.stringify(a) !== JSON.stringify(b)) this.onTransformEnd?.(c, b, a);
+      }, 400);
+    }
+    this.invalidate(); this.onCamera?.();
+  }
+
+  fitCameraView() { this.camZoom = 1; this.invalidate(); }
 
   frame(o) {
     const b = new THREE.Box3().setFromObject(o), c = b.getCenter(new THREE.Vector3());
