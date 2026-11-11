@@ -10,10 +10,12 @@ export function bindShortcuts(app) {
       else if (k === 'y') { e.preventDefault(); app.history.redo(); }
       else if (e.code === 'Space') { e.preventDefault(); app.act('layout', 'full'); }
       else if (e.code === 'Numpad0') { e.preventDefault(); app.act(e.altKey ? 'aligncam' : 'setcamera'); }
+      else if (k === 'j' && app.mode === 'object') { e.preventDefault(); app.act('join'); }
       return;
     }
     if (e.altKey && k === 'z') { app.act('shade', app.engine.shading === 'xray' ? 'solid' : 'xray'); return; }
     if (e.altKey) return;
+    if (e.shiftKey && k === 'c' && !e.ctrlKey) { app.act('cursor', 'origin'); app.act('frameall'); return; }
     if (e.shiftKey && k === 'a') { e.preventDefault(); app.toggleAdd(true); return; }
     if (e.shiftKey && k === 'd') { app.act('duplicate'); return; }
 

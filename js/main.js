@@ -3,6 +3,7 @@ import { History } from './core/History.js';
 import { PRIMS, createPrimitive, uniqueName, disposeObject } from './scene/Primitives.js';
 import { exportScene, save } from './io/Exporter.js';
 import { renderViews, encode } from './io/Renderer.js';
+import { applyTransform, setOrigin, shade, joinObjects, booleanObjects } from './tools/ObjectTools.js';
 import { createCamera, cloneCamera } from './scene/Cameras.js';
 import { LIGHT_NAMES, createLight, cloneLight, lightType } from './scene/Lights.js';
 import { Outliner } from './ui/Outliner.js';
@@ -10,6 +11,7 @@ import { Properties } from './ui/Properties.js';
 import { bindShortcuts } from './ui/Shortcuts.js';
 import { Layout } from './ui/Layout.js';
 import { importFile, pickFiles } from './io/Importer.js';
+import { MODIFIERS, applyStack, baseOf, hasModifiers, copyModifiers, build, evaluate } from './scene/Modifiers.js';
 
 const $ = s => document.querySelector(s);
 
@@ -83,10 +85,18 @@ class App {
       camlock: () => { e.camLock = !e.camLock; e.invalidate(); },
       camzoom: () => (arg === 'fit' ? e.fitCameraView() : e.zoomCameraView(arg === 'in' ? 1.25 : 1 / 1.25)),
       camexit: () => e.exitCameraView(true),
+      apply: () => applyTransform(this, s, arg),
+      origin: () => setOrigin(this, s, arg),
+      shademesh: () => shade(this, s, arg === 'smooth'),
+      join: () => joinObjects(this, s),
+      boolean: () => booleanObjects(this, s),
+      cursor: () => this.moveCursor(arg),
+      tocursor: () => this.selectionToCursor(),
       snap: () => { e.setSnap(!e.snapOn, e.snapInc); },
       orient: () => e.setOrient(e.orient === 'local' ? 'world' : 'local'),
       xray: () => e.setShading(e.shading === 'xray' ? 'solid' : 'xray'),
       fullscreen: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()),
+      addmod: () => s?.isMesh && this.addModifier(s, arg),
       importfiles: () => pickFiles('.glb,.gltf,.obj,.stl,.ply,.fbx,.forge3d').then(f => this.importFiles(f)),
       hide: () => s && this.setVisible(s, false),
       frameall: () => e.frameAll(),
@@ -99,6 +109,21 @@ class App {
       save: () => exportScene(e.world, arg) || this.say('Nothing to export'),
     })[name]?.();
     this.updateUI();
+  }
+
+  // Snap > Cursor to World Origin / Cursor to Selected
+  moveCursor(where) {
+    const c = this.engine.cursorObj;
+    if (where === 'selected') { if (!this.sel) return this.say('Select an object first'); c.position.copy(this.sel.position); } else c.position.set(0, 0, 0);
+    this.engine.invalidate();
+  }
+
+  selectionToCursor() {
+    const o = this.sel; if (!o) return this.say('Select an object first');
+    const before = snap(o);
+    o.position.copy(this.engine.cursorObj.position);
+    this.commitTransform(o, before, snap(o));
+    this.engine.sync(); this.refresh();
   }
 
   // Measure tool: click two points
@@ -133,6 +158,7 @@ class App {
 
   add(type) {
     const m = createPrimitive(type, uniqueName(this.engine.world, type));
+    m.position.copy(this.engine.cursorObj.position); // new objects appear at the 3D cursor
     this.insert(m);
   }
 
@@ -143,6 +169,47 @@ class App {
   }
 
   // node editors
+
+  // Changing the modifier list is undoable
+  setModifiers(mesh, next, nextBase = null) {
+    if (this.mode !== 'object') return this.say('Go back to Object Mode first');
+    const prev = mesh.userData.modifiers || [], prevBase = hasModifiers(mesh) ? baseOf(mesh) : null;
+    const set = (stack, base) => { applyStack(mesh, stack, base); this.props.cur = undefined; };
+    this.history.do({ do: () => set(next, nextBase), undo: () => set(prev, prevBase) });
+  }
+
+  addModifier(mesh, type) {
+    this.setModifiers(mesh, [...(mesh.userData.modifiers || []), { type, enabled: true, ...MODIFIERS[type].defaults }]);
+  }
+
+  removeModifier(mesh, i) {
+    this.setModifiers(mesh, mesh.userData.modifiers.filter((_, k) => k !== i));
+  }
+
+  moveModifier(mesh, i, dir) {
+    const list = [...mesh.userData.modifiers], j = i + dir;
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    this.setModifiers(mesh, list);
+  }
+
+  toggleModifier(mesh, i) {
+    if (this.mode !== 'object') return this.say('Go back to Object Mode first');
+    const mod = mesh.userData.modifiers[i], next = !mod.enabled;
+    const set = on => { mod.enabled = on; evaluate(mesh); this.props.cur = undefined; };
+    this.history.do({ do: () => set(next), undo: () => set(!next) });
+  }
+
+  // bakes this modifier and the ones above it into the mesh
+  applyModifier(mesh, i) {
+    const list = mesh.userData.modifiers;
+    try {
+      this.setModifiers(mesh, list.slice(i + 1), build(baseOf(mesh), list.slice(0, i + 1)));
+    } catch (err) {
+      console.error(err);
+      this.say(`Could not apply: ${err.message}`);
+    }
+  }
 
   // add several objects as one undo step
   insertMany(objs) {
@@ -304,6 +371,7 @@ class App {
 
   addLight(type) {
     const l = createLight(type, uniqueName(this.engine.world, LIGHT_NAMES[type]));
+    if (this.engine.cursorObj.position.lengthSq() > 0) l.position.copy(this.engine.cursorObj.position);
     this.insert(l);
   }
 
@@ -371,6 +439,7 @@ class App {
       if (m.isMesh) { m.geometry = m.geometry.clone(); m.material = m.material.clone(); }
     });
     c.name = uniqueName(this.engine.world, s.name.replace(/\.\d+$/, ''));
+    copyModifiers(s, c);
     this.insert(c);
   }
 

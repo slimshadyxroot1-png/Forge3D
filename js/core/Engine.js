@@ -28,6 +28,16 @@ export class Engine {
     r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
     // the World: light that comes from everywhere
     this.worldLight = new THREE.HemisphereLight(0x808080, 0x808080, 3); this.worldLight.position.set(0, 0, 1); s.add(this.worldLight);
+    // the 3D cursor: new objects appear here
+    const cur = this.cursorObj = new THREE.Group();
+    const rightPts = Array.from({ length: 49 }, (_, i) => new THREE.Vector3(Math.cos(i / 48 * Math.PI * 2), Math.sin(i / 48 * Math.PI * 2), 0));
+    const lineMat = c => new THREE.LineBasicMaterial({ color: c, depthTest: false, transparent: true });
+    cur.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rightPts), lineMat(0xff3030)));
+    for (const [a, b] of [[[-1.6, 0, 0], [-0.6, 0, 0]], [[0.6, 0, 0], [1.6, 0, 0]], [[0, -1.6, 0], [0, -0.6, 0]], [[0, 0.6, 0], [0, 1.6, 0]], [[0, 0, -1.6], [0, 0, -0.6], [0, 0, 1.6]]])
+      cur.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]), lineMat(0xffffff)));
+    cur.traverse(o => { o.renderOrder = 998; });
+    s.add(cur);
+
     this.grid = createGrid(); s.add(this.grid);
     this.persp = new THREE.PerspectiveCamera(40, 1, .1, 1000);
     this.ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
@@ -79,6 +89,8 @@ export class Engine {
   render() {
     if (this.camView) this.syncCameraView();
     this.updateFill();
+    // the 3D cursor keeps the same size on screen
+    this.cursorObj.scale.setScalar(this.camera.isOrthographicCamera ? (this.ortho.top - this.ortho.bottom) / this.ortho.zoom * 0.035 : this.camera.position.distanceTo(this.cursorObj.position) * 0.04);
     const s = this.sel; this.box.visible = !!s && s.visible && s !== this.camView;
     if (this.box.visible) this.box.setFromObject(s);
     updateGrid(this.grid, this.camera, this.orbit.target);

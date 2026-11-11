@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { baseOf } from './Modifiers.js';
 
 // rotate so the shape stands up along Z
 const zUp = g => g.rotateX(Math.PI / 2);
@@ -41,6 +42,7 @@ export function uniqueName(root, base) {
 export function disposeObject(o) {
   o.traverse(c => {
     c.geometry?.dispose();
+    if (c.isMesh) baseOf(c).dispose(); // the original mesh behind the modifiers
     c.material?.dispose();
     c.shadow?.dispose();
   });

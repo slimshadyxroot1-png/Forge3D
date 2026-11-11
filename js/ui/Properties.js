@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { snap } from '../core/Engine.js';
 import { lightType, refreshGizmo } from '../scene/Lights.js';
+import { MODIFIERS, evaluate } from '../scene/Modifiers.js';
 import { fovFromLength, refreshCameraGizmo } from '../scene/Cameras.js';
 
 export class Properties {
@@ -26,6 +27,8 @@ export class Properties {
         <div class="grp"><label>Color</label><input type="color" id="mc"></div>
         ${slider('mr', 'Roughness', 0, 1)}${slider('mm', 'Metallic', 0, 1)}`;
     }
+    if (o.isMesh && this.a.mode === 'object') html += this.objectToolsHtml();
+    if (o.isMesh) html += this.modHtml(o);
     if (o.isCamera) html += this.cameraHtml();
     if (o.isLight) html += this.lightHtml(o);
     this.el.innerHTML = html;
@@ -44,8 +47,62 @@ export class Properties {
       this.bindLive(q('#mr'), () => String(m.roughness), v => { m.roughness = +v; });
       this.bindLive(q('#mm'), () => String(m.metalness), v => { m.metalness = +v; });
     }
+    if (o.isMesh) this.bindMods(o);
+    this.el.querySelectorAll('[data-otool]').forEach(b => {
+      b.onclick = () => { const [act, arg] = b.dataset.otool.split(':'); this.a.act(act, arg); };
+    });
     if (o.isCamera) this.bindCamera(o);
     if (o.isLight) this.bindLight(o);
+  }
+
+  objectToolsHtml() {
+    const b = (t, label, tip = '') => `<button data-otool="${t}" title="${tip}">${label}</button>`;
+    return `<h4>Object Tools</h4>
+      <div class="grp"><label>Apply (bake into the mesh, Ctrl A)</label><div class="btns">${b('apply:location', 'Location')}${b('apply:rotation', 'Rotation')}${b('apply:scale', 'Scale')}${b('apply:all', 'All')}</div></div>
+      <div class="grp"><label>Set Origin</label><div class="btns">${b('origin:geometry', 'To Geometry')}${b('origin:mass', 'To Center of Mass')}</div></div>
+      <div class="grp"><label>Shading</label><div class="btns">${b('shademesh:smooth', 'Shade Smooth')}${b('shademesh:flat', 'Shade Flat')}</div></div>
+      <div class="grp"><label>Combine with another mesh</label><div class="btns">${b('join', 'Join (Ctrl J)')}${b('boolean', 'Boolean...')}</div></div>`;
+  }
+
+  modHtml(o) {
+    const stack = o.userData.modifiers || [];
+    const field = (i, [key, label, kind, opt]) => kind === 'button'
+      ? `<div class="grp"><button data-nodes="${i}">${label}</button></div>`
+      : kind === 'select'
+      ? `<div class="grp"><label>${label}</label><select data-i="${i}" data-key="${key}">${opt.map(v => `<option value="${v}">${v.toUpperCase()}</option>`).join('')}</select></div>`
+      : `<div class="grp"><label>${label}</label><input type="number" data-i="${i}" data-key="${key}" step="${opt.step}" min="${opt.min ?? ''}"></div>`;
+    const blocks = stack.map((m, i) => `<div class="mod">
+      <div class="modhead">
+        <input type="checkbox" data-op="toggle" data-i="${i}" title="Show in viewport">
+        <span>${MODIFIERS[m.type].label}</span>
+        <button data-op="up" data-i="${i}" title="Move up">&uarr;</button>
+        <button data-op="down" data-i="${i}" title="Move down">&darr;</button>
+        <button data-op="apply" data-i="${i}" title="Apply this modifier and the ones before it">Apply</button>
+        <button data-op="remove" data-i="${i}" title="Remove">&times;</button>
+      </div>${MODIFIERS[m.type].fields.map(f => field(i, f)).join('')}</div>`).join('');
+    const options = Object.entries(MODIFIERS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+    return `<h4>Modifiers</h4>${blocks}<div class="grp"><select id="addmod"><option value="">Add Modifier...</option>${options}</select></div>`;
+  }
+
+  bindMods(o) {
+    const a = this.a, stack = o.userData.modifiers || [];
+    this.el.querySelector('#addmod').onchange = e => { if (e.target.value) a.addModifier(o, e.target.value); };
+    this.el.querySelectorAll('[data-op]').forEach(el => {
+      const i = +el.dataset.i, op = el.dataset.op;
+      if (op === 'toggle') el.onchange = () => a.toggleModifier(o, i);
+      else el.onclick = () => ({
+        up: () => a.moveModifier(o, i, -1), down: () => a.moveModifier(o, i, 1),
+        apply: () => a.applyModifier(o, i), remove: () => a.removeModifier(o, i),
+      })[op]();
+    });
+    this.el.querySelectorAll('[data-key]').forEach(el => {
+      const m = stack[+el.dataset.i], key = el.dataset.key;
+      this.bindLive(el, () => String(m[key]), v => {
+        m[key] = el.tagName === 'SELECT' ? v : (Number.isFinite(+v) ? +v : m[key]);
+        evaluate(o);
+        a.engine.invalidate();
+      });
+    });
   }
 
   cameraHtml() {
@@ -148,6 +205,13 @@ export class Properties {
       put('#cf', o.userData.focal); put('#cn', o.near); put('#cfar', o.far);
       const state = this.el.querySelector('#cstate');
       if (state) state.textContent = this.a.activeCamera() === o ? '(active)' : '';
+    }
+    if (o.isMesh) {
+      const m = o.material, stack = o.userData.modifiers || [];
+      this.el.querySelectorAll('[data-key]').forEach(el => {
+        if (document.activeElement !== el) el.value = stack[+el.dataset.i]?.[el.dataset.key];
+      });
+      this.el.querySelectorAll('[data-op=toggle]').forEach(el => { el.checked = !!stack[+el.dataset.i]?.enabled; });
     }
     if (o.isLight) {
       put('#lt', lightType(o)); put('#lc', '#' + o.color.getHexString());
