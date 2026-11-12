@@ -1,6 +1,7 @@
 import { Engine, restore, snap } from './core/Engine.js';
 import { History } from './core/History.js';
 import { PRIMS, createPrimitive, uniqueName, disposeObject } from './scene/Primitives.js';
+import { Brush } from './tools/Brush.js';
 import { exportScene, save } from './io/Exporter.js';
 import { renderViews, encode } from './io/Renderer.js';
 import { applyTransform, setOrigin, shade, joinObjects, booleanObjects } from './tools/ObjectTools.js';
@@ -29,6 +30,7 @@ class App {
     this.outliner = new Outliner(this, $('#outliner'));
     this.props = new Properties(this, $('#props'));
     this.history = new History(() => this.refresh());
+    this.brush = new Brush(this);
 
     e.onPick = o => this.select(o);
     e.onTransform = () => this.props.sync();
@@ -101,10 +103,12 @@ class App {
       hide: () => s && this.setVisible(s, false),
       frameall: () => e.frameAll(),
       layout: () => this.layout.toggle(arg),
+      workspace: () => this.setMode(arg),
       dialog: () => this.openRender(),
       tool: () => this.setTool(arg),
       proj: () => e.setProjection(arg),
       shade: () => e.setShading(arg),
+      mode: () => this.setMode(arg),
       frame: () => s && e.frame(s),
       save: () => exportScene(e.world, arg) || this.say('Nothing to export'),
     })[name]?.();
@@ -141,6 +145,15 @@ class App {
     if (t !== 'measure') { this.measure = []; }
     this.engine.setTool(t);
     this.updateUI();
+  }
+
+  setMode(m) {
+    if (m !== 'object' && !this.sel?.isMesh) return this.say('Select a mesh first');
+    if (m !== 'object' && hasModifiers(this.sel)) return this.say('Apply or remove the modifiers before sculpting');
+    this.mode = m;
+    this.engine.setBrushing(m !== 'object'); // left mouse becomes the brush
+    this.brush.refreshMask(m === 'sculpt' ? this.sel : null); // the mask dots show in sculpt mode only
+    this.refresh();
   }
 
   // show a short message in the status bar
@@ -486,6 +499,8 @@ class App {
     document.querySelectorAll('[data-act]').forEach(b => {
       if (b.dataset.act in on) b.classList.toggle('on', b.dataset.arg === on[b.dataset.act]);
     });
+    const names = { object: 'Object Mode', edit: 'Edit Mode', sculpt: 'Sculpt Mode', paint: 'Vertex Paint', texpaint: 'Texture Paint' };
+    $('#modelabel').textContent = names[this.mode] || 'Object Mode';
     $('#orientbtn').textContent = e.orient === 'local' ? 'Local' : 'Global';
     $('#cambar').hidden = !e.camView;
     $('#hint').textContent = e.camView

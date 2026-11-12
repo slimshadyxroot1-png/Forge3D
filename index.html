@@ -80,6 +80,13 @@
       </div>
     </div>
 
+    <!-- Workspace -->
+    <div class="tabs">
+      <button class="tab" data-act="workspace" data-arg="object" title="Layout: object model">Layout</button>
+      <button class="tab" data-act="workspace" data-arg="sculpt" title="Sculpting: sculpt mode on the selected mesh">Sculpting</button>
+      <button class="tab" data-act="workspace" data-arg="paint" title="vertex painting on the selected mesh">Vertex Paint</button>
+    </div>
+
     <button class="hbtn" data-act="render" title="Go to the camera view, then render (F12)">Render</button>
   </header>
 
@@ -120,6 +127,14 @@
     <!-- 3D viewport -->
     <section id="vp">
       <div id="vph">
+        <div class="menu modesel">
+          <span><b id="modelabel">Object Mode</b> &#9662;</span>
+          <div class="dd">
+            <a data-act="mode" data-arg="object">Object Mode</a>
+            <a data-act="mode" data-arg="sculpt">Sculpt Mode</a>
+            <a data-act="mode" data-arg="paint">vertex Paint</a>
+          </div>
+        </div>
 
         <div class="menu">
           <span>View</span>

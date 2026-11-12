@@ -3,6 +3,7 @@ import { snap } from '../core/Engine.js';
 import { lightType, refreshGizmo } from '../scene/Lights.js';
 import { MODIFIERS, evaluate } from '../scene/Modifiers.js';
 import { fovFromLength, refreshCameraGizmo } from '../scene/Cameras.js';
+import { BRUSHES } from '../tools/Brush.js';
 
 export class Properties {
   constructor(app, el) { this.a = app; this.el = el; this.cur = undefined; this.mode = null; }
@@ -31,6 +32,26 @@ export class Properties {
     if (o.isMesh) html += this.modHtml(o);
     if (o.isCamera) html += this.cameraHtml();
     if (o.isLight) html += this.lightHtml(o);
+    if (this.a.mode === 'sculpt' || this.a.mode === 'paint') {
+      const paint = this.a.mode === 'paint';
+      const pick = (id, title, items) => `<div class="grp"><label>${title}</label><select id="${id}">${
+        Object.entries(items).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></div>`;
+      const check = (id, title) => `<div class="grp"><label><input type="checkbox" id="${id}">${title}</label></div>`;
+      html += `<h4>${paint ? 'Paint' : 'Sculpt'} Brush</h4>
+        ${paint ? '<div class="grp"><label>Brush Color</label><input type="color" id="bc"></div>' : pick('bt', 'Brush (Ctrl = reverse)', BRUSHES)}
+        ${slider('br', 'Radius', 0.05, 2)}${slider('bs', 'Strength', 0.05, 1)}${slider('bsp', 'Spacing', 0.02, 1)}
+        ${pick('bf', 'Falloff', { smooth: 'Smooth', linear: 'Linear', sharp: 'Sharp' })}
+        <div class="grp"><label>Symmetry</label><div class="btns">${['x', 'y', 'z'].map((a, k) =>
+          `<label class="check"><input type="checkbox" data-sym="${k}">${a.toUpperCase()}</label>`).join('')}</div></div>
+        <div class="grp"><label>Radial Symmetry (copies around Z)</label><input type="number" id="brad" min="1" max="12" step="1"></div>
+        ${check('bsub', 'Subtract (reverse the brush)')}${check('bpen', 'Pen pressure')}`;
+      if (!paint) {
+        html += `<h4>Mask and Detail</h4>
+          <div class="grp btns"><button data-mask="invert">Invert Mask</button><button data-mask="clear">Clear Mask</button><button data-mask="blur">Blur Mask</button></div>
+          <div class="grp btns"><button data-detail="subdivide">Add Detail (Subdivide)</button><button data-detail="smooth">Smooth Mesh</button></div>
+          <div class="empty">Choose the Mask brush to paint a mask. Masked points do not move.</div>`;
+      }
+    }
     this.el.innerHTML = html;
     this.bind(o);
     this.sync();
@@ -53,6 +74,25 @@ export class Properties {
     });
     if (o.isCamera) this.bindCamera(o);
     if (o.isLight) this.bindLight(o);
+    if (q('#br')) {
+      q('#br').oninput = e => { opt.radius = +e.target.value; };
+      q('#bs').oninput = e => { opt.strength = +e.target.value; };
+      q('#bsp').oninput = e => { opt.space = +e.target.value; };
+      q('#bf').onchange = e => { opt.falloff = e.target.value; };
+      this.el.querySelectorAll('[data-sym]').forEach(c => { c.onchange = () => { opt.sym[+c.dataset.sym] = c.checked; }; });
+    }
+    if (q('#bt')) q('#bt').onchange = e => { opt.type = e.target.value; };
+    if (q('#bc')) q('#bc').oninput = e => { opt.color = e.target.value; };
+    if (q('#brad')) {
+      q('#brad').oninput = e => { opt.radial = Math.max(1, Math.min(12, Math.round(+e.target.value) || 1)); };
+      q('#bsub').onchange = e => { opt.subtract = e.target.checked; };
+      q('#bpen').onchange = e => { opt.pressure = e.target.checked; };
+    }
+    {
+      const a = this.a;
+      this.el.querySelectorAll('[data-mask]').forEach(b => { b.onclick = () => a.brush.maskOp(b.dataset.mask); });
+      this.el.querySelectorAll('[data-detail]').forEach(b => { b.onclick = () => (b.dataset.detail === 'subdivide' ? a.brush.subdivideMesh() : a.brush.smoothMesh()); });
+    }
   }
 
   objectToolsHtml() {
@@ -220,7 +260,12 @@ export class Properties {
       const shadow = this.el.querySelector('#ls');
       if (shadow) shadow.checked = o.castShadow;
     }
+    const opt = this.a.brush.opt;
+    put('#br', opt.radius); put('#bs', opt.strength); put('#bt', opt.type); put('#bc', opt.color);
+    put('#bsp', opt.spacing); put('#bf', opt.falloff); put('#brad', opt.radial);
     const tick = (id, v) => { const c = this.el.querySelector(id); if (c) c.checked = v; };
+    tick('#bsub', opt.subtract); tick('#bpen', opt.pressure);
+    this.el.querySelectorAll('[data-sym]').forEach(c => { c.checked = opt.sym[+c.dataset.sym]; });
   }
 
   edit(i) {

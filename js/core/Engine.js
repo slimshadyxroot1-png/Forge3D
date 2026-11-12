@@ -68,7 +68,17 @@ export class Engine {
       e.preventDefault();
       this.zoomCameraView(e.deltaY > 0 ? 1 / 1.1 : 1.1);
     }, { passive: false });
-// capture
+    addEventListener('keydown', e => {
+      if (e.code === 'Space' && !e.target.matches?.('input,textarea,select,button')) { this.space = true; e.preventDefault(); }
+    });
+    addEventListener('keyup', e => { if (e.code === 'Space') this.space = false; });
+    addEventListener('blur', () => { this.space = false; });
+    dom.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      let orbit = e.altKey || this.space || !this.brushing;
+      if (!orbit && this.offMeshOrbit) orbit = !this.sel?.isMesh || !this.hit(e, this.sel);
+      o.mouseButtons.LEFT = orbit ? THREE.MOUSE.ROTATE : null;
+    }, { capture: true });
     dom.addEventListener('pointerdown', e => { if (e.button === 0) this._d = { x: e.clientX, y: e.clientY, a: t.axis }; });
     dom.addEventListener('pointerup', e => {
       const d = this._d; this._d = null;
@@ -212,6 +222,25 @@ export class Engine {
     return () => this.setShading(prev);
   }
 
+  // while sculpting or painting the left mouse is the brush
+  setBrushing(on) {
+    this.brushing = on;
+    this.orbit.mouseButtons.LEFT = on ? null : THREE.MOUSE.ROTATE;
+    this.orbit.mouseButtons.RIGHT = on ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
+    this.sync();
+  }
+  // where the mouse ray hits one mesh
+  hit(e, mesh) {
+    const rc = this._rc ||= new THREE.Raycaster(), b = this.renderer.domElement.getBoundingClientRect();
+    rc.setFromCamera(new THREE.Vector2((e.clientX - b.left) / b.width * 2 - 1, -(e.clientY - b.top) / b.height * 2 + 1), this.camera);
+    return rc.intersectObject(mesh, false)[0] || null;
+  }
+  // the ray under the mouse
+  ray(e) {
+    const rc = this._rc, b = this.renderer.domElement.getBoundingClientRect();
+    rc.setFromCamera(new THREE.Vector2((e.clientX - b.left) / b.width * 2 - 1, -(e.clientY - b.top) / b.height * 2 + 1), this.camera);
+    return rc;
+  }
   // called when the user starts moving the view
   beginNav() {
     if (!this.camView) return;
