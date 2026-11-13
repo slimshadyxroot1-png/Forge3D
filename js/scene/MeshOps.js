@@ -159,9 +159,175 @@ export function wireframe(d, p) {
 
 // normals
 
+// signed volume of a triangle list
+export function volume(pos, idx) {
+  let v = 0;
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+    v += (pos[a] * (pos[b + 1] * pos[c + 2] - pos[b + 2] * pos[c + 1])
+        - pos[a + 1] * (pos[b] * pos[c + 2] - pos[b + 2] * pos[c])
+        + pos[a + 2] * (pos[b] * pos[c + 1] - pos[b + 1] * pos[c])) / 6;
+  }
+  return v;
+}
+
+export function recalcNormals(d, inside = false) {
+  const rep = canon(d.pos), idx = d.idx, tris = idx.length / 3, tv = t => [0, 1, 2].map(k => rep[idx[t * 3 + k]]);
+  const edge = new Map();
+  for (let t = 0; t < tris; t++) {
+    const v = tv(t);
+    for (let k = 0; k < 3; k++) {
+      const key = v[k] < v[(k + 1) % 3] ? `${v[k]}_${v[(k + 1) % 3]}` : `${v[(k + 1) % 3]}_${v[k]}`;
+      if (!edge.has(key)) edge.set(key, []);
+      edge.get(key).push(t);
+    }
+  }
+  const seen = new Uint8Array(tris), flipped = new Uint8Array(tris);
+  const dirOf = (t, a, b) => { const v = tv(t); for (let k = 0; k < 3; k++) if (v[k] === a && v[(k + 1) % 3] === b) return 1; return -1; };
+  for (let s = 0; s < tris; s++) {
+    if (seen[s]) continue;
+    const comp = [s], stack = [s]; seen[s] = 1;
+    while (stack.length) {
+      const t = stack.pop(), v = tv(t);
+      for (let k = 0; k < 3; k++) {
+        const a = v[k], b = v[(k + 1) % 3], key = a < b ? `${a}_${b}` : `${b}_${a}`;
+        for (const u of edge.get(key)) {
+          if (seen[u] || u === t) continue;
+          const mine = flipped[t] ? -dirOf(t, a, b) : dirOf(t, a, b), theirs = dirOf(u, a, b);
+          flipped[u] = mine === theirs ? 1 : 0;
+          seen[u] = 1; stack.push(u); comp.push(u);
+        }
+      }
+    }
+    // outwards or inwards for the whole shape
+    let vol = 0;
+    for (const t of comp) {
+      const o = flipped[t] ? [idx[t * 3], idx[t * 3 + 2], idx[t * 3 + 1]] : [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]];
+      vol += volume(d.pos, o);
+    }
+    if (inside ? vol > 0 : vol < 0) for (const t of comp) flipped[t] ^= 1;
+  }
+  for (let t = 0; t < tris; t++) if (flipped[t]) [idx[t * 3 + 1], idx[t * 3 + 2]] = [idx[t * 3 + 2], idx[t * 3 + 1]];
+  return d;
+}
+
 // selection helpers
 
+// faces connected to the start faces through shared points
+export function linkedFaces(idx, start) {
+  const byVert = new Map(), tris = idx.length / 3;
+  for (let t = 0; t < tris; t++) for (let k = 0; k < 3; k++) { const v = idx[t * 3 + k]; if (!byVert.has(v)) byVert.set(v, []); byVert.get(v).push(t); }
+  const out = new Set(start), stack = [...start];
+  while (stack.length) {
+    const t = stack.pop();
+    for (let k = 0; k < 3; k++) for (const u of byVert.get(idx[t * 3 + k])) if (!out.has(u)) { out.add(u); stack.push(u); }
+  }
+  return out;
+}
+
+export function neighbours(idx, n) {
+  const near = Array.from({ length: n }, () => new Set());
+  for (let t = 0; t < idx.length; t += 3) for (let k = 0; k < 3; k++) { const a = idx[t + k], b = idx[t + (k + 1) % 3]; near[a].add(b); near[b].add(a); }
+  return near;
+}
+
+// Select More: add every point next to a selected point
+export function growVerts(idx, n, sel) {
+  const near = neighbours(idx, n), out = new Set(sel);
+  for (const v of sel) near[v].forEach(u => out.add(u));
+  return out;
+}
+
+export function shrinkVerts(idx, n, sel) {
+  const near = neighbours(idx, n), out = new Set();
+  for (const v of sel) if ([...near[v]].every(u => sel.has(u))) out.add(v);
+  return out;
+}
+
 // Edit Mode operations on selected points
+
+export function vertexNormals(d) {
+  const P = d.pos, N = new Float64Array(P.length);
+  for (let t = 0; t < d.idx.length; t += 3) {
+    const a = d.idx[t] * 3, b = d.idx[t + 1] * 3, c = d.idx[t + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2], vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; // bigger faces count more
+    for (const i of [a, b, c]) { N[i] += nx; N[i + 1] += ny; N[i + 2] += nz; }
+  }
+  for (let i = 0; i < N.length; i += 3) { const l = Math.hypot(N[i], N[i + 1], N[i + 2]) || 1; N[i] /= l; N[i + 1] /= l; N[i + 2] /= l; }
+  return N;
+}
+
+export function smoothSelected(d, sel, factor = 0.5, iterations = 1) {
+  const near = neighbours(d.idx, d.pos.length / 3);
+  for (let it = 0; it < iterations; it++) {
+    const out = d.pos.slice();
+    for (const v of sel) {
+      if (!near[v].size) continue;
+      for (let k = 0; k < 3; k++) {
+        let s = 0;
+        for (const u of near[v]) s += d.pos[u * 3 + k];
+        out[v * 3 + k] = d.pos[v * 3 + k] + (s / near[v].size - d.pos[v * 3 + k]) * factor;
+      }
+    }
+    d.pos = out;
+  }
+  return d;
+}
+
+export function toSphere(d, sel, factor = 1) {
+  const ids = [...sel], P = d.pos, c = [0, 0, 0];
+  if (!ids.length) return d;
+  for (const i of ids) for (let k = 0; k < 3; k++) c[k] += P[i * 3 + k] / ids.length;
+  let R = 0;
+  for (const i of ids) R += Math.hypot(P[i * 3] - c[0], P[i * 3 + 1] - c[1], P[i * 3 + 2] - c[2]) / ids.length;
+  for (const i of ids) {
+    const v = [0, 1, 2].map(k => P[i * 3 + k] - c[k]), l = Math.hypot(...v) || 1;
+    for (let k = 0; k < 3; k++) P[i * 3 + k] += (c[k] + v[k] / l * R - P[i * 3 + k]) * factor;
+  }
+  return d;
+}
+
+export function shrinkFatten(d, sel, dist) {
+  const N = vertexNormals(d);
+  for (const i of sel) for (let k = 0; k < 3; k++) d.pos[i * 3 + k] += N[i * 3 + k] * dist;
+  return d;
+}
+
+export function fillPoints(d, ids) {
+  if (ids.length < 3) return false;
+  const P = d.pos, c = [0, 0, 0];
+  for (const i of ids) for (let k = 0; k < 3; k++) c[k] += P[i * 3 + k] / ids.length;
+  let n = [0, 0, 0];
+  for (let j = 0; j < ids.length; j++) {
+    const a = ids[j], b = ids[(j + 1) % ids.length], ax = P[a * 3] - c[0], ay = P[a * 3 + 1] - c[1], az = P[a * 3 + 2] - c[2],
+      bx = P[b * 3] - c[0], by = P[b * 3 + 1] - c[1], bz = P[b * 3 + 2] - c[2];
+    n[0] += ay * bz - az * by; n[1] += az * bx - ax * bz; n[2] += ax * by - ay * bx;
+  }
+  // the points are not in order yet
+  let l = Math.hypot(...n);
+  if (l < 1e-9) {
+    const e1 = [P[ids[1] * 3] - P[ids[0] * 3], P[ids[1] * 3 + 1] - P[ids[0] * 3 + 1], P[ids[1] * 3 + 2] - P[ids[0] * 3 + 2]];
+    let best = null, bl = 0;
+    for (let j = 2; j < ids.length; j++) {
+      const e2 = [P[ids[j] * 3] - P[ids[0] * 3], P[ids[j] * 3 + 1] - P[ids[0] * 3 + 1], P[ids[j] * 3 + 2] - P[ids[0] * 3 + 2]];
+      const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]], cl = Math.hypot(...cr);
+      if (cl > bl) { bl = cl; best = cr; }
+    }
+    if (!best) return false;
+    n = best; l = bl;
+  }
+  n = n.map(v => v / l);
+  // sort around the middle
+  const h = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  let u = [n[1] * h[2] - n[2] * h[1], n[2] * h[0] - n[0] * h[2], n[0] * h[1] - n[1] * h[0]];
+  const ul = Math.hypot(...u); u = u.map(v => v / ul);
+  const w = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]];
+  const ang = i => { const v = [0, 1, 2].map(k => P[i * 3 + k] - c[k]); return Math.atan2(v[0] * w[0] + v[1] * w[1] + v[2] * w[2], v[0] * u[0] + v[1] * u[1] + v[2] * u[2]); };
+  const sorted = [...ids].sort((a, b) => ang(a) - ang(b));
+  for (let j = 1; j < sorted.length - 1; j++) d.idx.push(sorted[0], sorted[j], sorted[j + 1]);
+  return true;
+}
 
 // boolean
 
@@ -459,5 +625,106 @@ export function bevel(d, p) {
 
 // loop cut
 
+// splits a triangle where some of its edges got a new point
+export function splitTri(a, b, c, ab, bc, ca, out) {
+  const count = (ab >= 0) + (bc >= 0) + (ca >= 0);
+  if (count === 0) out.push(a, b, c);
+  else if (count === 3) out.push(a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca);
+  else if (count === 1) {
+    if (bc >= 0) return splitTri(b, c, a, bc, ca, ab, out);
+    if (ca >= 0) return splitTri(c, a, b, ca, ab, bc, out);
+    out.push(a, ab, c, ab, b, c);
+  } else {
+    if (ab < 0) return splitTri(b, c, a, bc, ca, ab, out);
+    if (bc < 0) return splitTri(c, a, b, ca, ab, bc, out);
+    out.push(ab, b, bc, a, ab, c, ab, bc, c);
+  }
+}
+
+// cuts every triangle the plane
+export function planeCut(d, axis, pos, eps = 1e-6) {
+  const P = d.pos, idx = d.idx, mid = new Map(), created = [];
+  const sd = i => P[i * 3 + axis] - pos;
+  const cross2 = (a, b) => { const x = sd(a), y = sd(b); return (x < -eps && y > eps) || (x > eps && y < -eps); };
+  const point = (a, b) => {
+    const key = a < b ? `${a}_${b}` : `${b}_${a}`;
+    if (mid.has(key)) return mid.get(key);
+    const t = sd(a) / (sd(a) - sd(b)), i = P.length / 3;
+    for (let k = 0; k < 3; k++) P.push(P[a * 3 + k] + (P[b * 3 + k] - P[a * 3 + k]) * t);
+    P[i * 3 + axis] = pos;
+    if (d.col) for (let k = 0; k < 3; k++) d.col.push(d.col[a * 3 + k] + (d.col[b * 3 + k] - d.col[a * 3 + k]) * t);
+    mid.set(key, i); created.push(i);
+    return i;
+  };
+  const out = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t], b = idx[t + 1], c = idx[t + 2];
+    splitTri(a, b, c, cross2(a, b) ? point(a, b) : -1, cross2(b, c) ? point(b, c) : -1, cross2(c, a) ? point(c, a) : -1, out);
+  }
+  d.idx = out;
+  const on = [];
+  for (let i = 0; i < P.length / 3; i++) if (Math.abs(sd(i)) <= eps) on.push(i);
+  return { created, on };
+}
+
 // bridge two edge loops
 
+// edges: list of [a, b] pairs that form two loops
+export function bridgeLoops(d, edges) {
+  const adj = new Map();
+  for (const [a, b] of edges) {
+    if (!adj.has(a)) adj.set(a, []);
+    if (!adj.has(b)) adj.set(b, []);
+    adj.get(a).push(b); adj.get(b).push(a);
+  }
+  if ([...adj.values()].some(l => l.length > 2)) return 'Each loop must be a simple line or ring of edges';
+  const seen = new Set(), loops = [];
+  for (const v of adj.keys()) {
+    if (seen.has(v)) continue;
+    // find the start: an end point, or any point of a ring
+    const comp = [], stack = [v];
+    seen.add(v);
+    while (stack.length) { const x = stack.pop(); comp.push(x); for (const y of adj.get(x)) if (!seen.has(y)) { seen.add(y); stack.push(y); } }
+    const start = comp.find(x => adj.get(x).length === 1) ?? comp[0], ring = adj.get(start).length === 2 && comp.every(x => adj.get(x).length === 2);
+    const order = [start];
+    let prev = -1, cur = start;
+    for (;;) {
+      const next = adj.get(cur).find(x => x !== prev && !order.includes(x));
+      if (next === undefined) break;
+      order.push(next); prev = cur; cur = next;
+    }
+    loops.push({ order, ring });
+  }
+  if (loops.length !== 2) return 'Select exactly two edge loops';
+  let [A, B] = loops;
+  if (A.order.length !== B.order.length) return 'Both loops need the same number of points';
+  if (A.ring !== B.ring) return 'Select two rings or two open lines, not one of each';
+  const n = A.order.length, P = d.pos, dist = (i, j) => Math.hypot(P[i * 3] - P[j * 3], P[i * 3 + 1] - P[j * 3 + 1], P[i * 3 + 2] - P[j * 3 + 2]);
+  let best = Infinity, bestB = B.order;
+  for (const dir of [1, -1]) {
+    const seq = dir === 1 ? B.order : B.order.slice().reverse();
+    for (let s = 0; s < (A.ring ? n : 1); s++) {
+      const rot = seq.map((_, i) => seq[(i + s) % n]);
+      let sum = 0;
+      for (let i = 0; i < n; i++) sum += dist(A.order[i], rot[i]);
+      if (sum < best) { best = sum; bestB = rot; }
+    }
+  }
+  const a = A.order, b = bestB;
+  let faceFwd = null;
+  const a0 = a[0], a1 = a[1];
+  for (let t = 0; t < d.idx.length && faceFwd === null; t += 3) {
+    for (let k = 0; k < 3; k++) {
+      const x = d.idx[t + k], y = d.idx[t + (k + 1) % 3];
+      if (x === a0 && y === a1) { faceFwd = true; break; }
+      if (x === a1 && y === a0) { faceFwd = false; break; }
+    }
+  }
+  const last = A.ring ? n : n - 1;
+  for (let i = 0; i < last; i++) {
+    const j = (i + 1) % n;
+    if (faceFwd === false) d.idx.push(a[i], a[j], b[j], a[i], b[j], b[i]);
+    else d.idx.push(a[j], a[i], b[i], a[j], b[i], b[j]);
+  }
+  return null;
+}

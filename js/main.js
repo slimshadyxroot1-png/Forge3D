@@ -6,6 +6,7 @@ import { exportScene, save } from './io/Exporter.js';
 import { renderViews, encode } from './io/Renderer.js';
 import { applyTransform, setOrigin, shade, joinObjects, booleanObjects } from './tools/ObjectTools.js';
 import { createCamera, cloneCamera } from './scene/Cameras.js';
+import { EditMode } from './tools/EditMode.js';
 import { LIGHT_NAMES, createLight, cloneLight, lightType } from './scene/Lights.js';
 import { Outliner } from './ui/Outliner.js';
 import { Properties } from './ui/Properties.js';
@@ -31,6 +32,7 @@ class App {
     this.props = new Properties(this, $('#props'));
     this.history = new History(() => this.refresh());
     this.brush = new Brush(this);
+    this.editor = new EditMode(this);
 
     e.onPick = o => this.select(o);
     e.onTransform = () => this.props.sync();
@@ -72,8 +74,10 @@ class App {
     ({
       undo: () => this.history.undo(),
       redo: () => this.history.redo(),
-      duplicate: () => s && this.duplicate(s),
-      delete: () => s && this.remove(s),
+      duplicate: () => (this.mode === 'edit' ? this.editor.run('duplicate') : s && this.duplicate(s)),
+      delete: () => (this.mode === 'edit' ? this.editor.run('delete') : s && this.remove(s)),
+      edit: () => this.editor.run(arg),
+      emode: () => this.editor.setSelMode(arg),
       add: () => this.add(arg),
       addlight: () => this.addLight(arg),
       addcamera: () => this.addCamera(),
@@ -97,6 +101,7 @@ class App {
       snap: () => { e.setSnap(!e.snapOn, e.snapInc); },
       orient: () => e.setOrient(e.orient === 'local' ? 'world' : 'local'),
       xray: () => e.setShading(e.shading === 'xray' ? 'solid' : 'xray'),
+      select: () => (this.mode === 'edit' ? this.editor.run(arg) : arg === 'none' ? this.select(null) : this.say(arg === 'all' || arg === 'invert' ? 'Objects are selected one at a time' : 'This works in Edit Mode')),
       fullscreen: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()),
       addmod: () => s?.isMesh && this.addModifier(s, arg),
       importfiles: () => pickFiles('.glb,.gltf,.obj,.stl,.ply,.fbx,.forge3d').then(f => this.importFiles(f)),
@@ -135,6 +140,7 @@ class App {
   toggleAdd(open) { $('#addm').classList.toggle('open', open); }
 
   select(o) {
+    if (this.mode === 'edit' && o !== this.sel) this.setMode('object'); // another object: leave edit mode first
     this.sel = o;
     this.engine.setSelection(o);
     this.refresh();
@@ -144,14 +150,17 @@ class App {
     this.tool = t;
     if (t !== 'measure') { this.measure = []; }
     this.engine.setTool(t);
+    if (this.mode === 'edit') this.editor.movePivot();
     this.updateUI();
   }
 
   setMode(m) {
     if (m !== 'object' && !this.sel?.isMesh) return this.say('Select a mesh first');
     if (m !== 'object' && hasModifiers(this.sel)) return this.say('Apply or remove the modifiers before sculpting');
+    if (this.mode === 'edit') this.editor.exit();
     this.mode = m;
     this.engine.setBrushing(m !== 'object'); // left mouse becomes the brush
+    if (m === 'edit') this.editor.enter(this.sel);
     this.brush.refreshMask(m === 'sculpt' ? this.sel : null); // the mask dots show in sculpt mode only
     this.refresh();
   }
@@ -492,7 +501,7 @@ class App {
   }
   updateUI() {
     const e = this.engine;
-    const on = { tool: this.tool, proj: e.projection, shade: e.shading, xray: e.shading === 'xray' ? 'x' : '', camlock: e.camLock ? 'x' : '', snap: e.snapOn ? 'x' : '', orient: e.orient === 'local' ? 'x' : '' };
+    const on = { tool: this.tool, proj: e.projection, shade: e.shading, mode: this.mode, workspace: this.mode, xray: e.shading === 'xray' ? 'x' : '', camlock: e.camLock ? 'x' : '', snap: e.snapOn ? 'x' : '', orient: e.orient === 'local' ? 'x' : '' };
     const undo = $('#undo-btn'), redo = $('#redo-btn');
     if (undo) undo.disabled = !this.history?.u.length;
     if (redo) redo.disabled = !this.history?.r.length;
@@ -501,13 +510,15 @@ class App {
     });
     const names = { object: 'Object Mode', edit: 'Edit Mode', sculpt: 'Sculpt Mode', paint: 'Vertex Paint', texpaint: 'Texture Paint' };
     $('#modelabel').textContent = names[this.mode] || 'Object Mode';
+    document.querySelectorAll('.editonly').forEach(m => { m.hidden = this.mode !== 'edit'; });
+    document.querySelectorAll('.objonly').forEach(m => { m.hidden = this.mode === 'edit'; });
     $('#orientbtn').textContent = e.orient === 'local' ? 'Local' : 'Global';
     $('#cambar').hidden = !e.camView;
     $('#hint').textContent = e.camView
       ? (e.camLock
         ? 'Camera view | Wheel: move the camera closer or further | Left drag: orbit the camera | Right drag: pan | Numpad 0: back'
         : 'Camera view | Wheel: zoom the view only | Dragging leaves the camera view | Numpad 0: back')
-      : 'Orbit: left drag | Shift + drag: pan | Wheel: zoom';
+      : 'Orbit: left drag (Object mode) or right drag (Edit / Sculpt / Paint) | Shift + drag: pan | Alt or Space + left drag: orbit | Wheel: zoom';
     this.updateViewText();
   }
   refresh() {

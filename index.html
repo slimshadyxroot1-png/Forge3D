@@ -80,11 +80,12 @@
       </div>
     </div>
 
-    <!-- Workspace -->
+    <!-- Workspaces -->
     <div class="tabs">
-      <button class="tab" data-act="workspace" data-arg="object" title="Layout: object model">Layout</button>
+      <button class="tab" data-act="workspace" data-arg="object" title="Layout: object mode">Layout</button>
+      <button class="tab" data-act="workspace" data-arg="edit" title="Modeling: edit mode on the selected mesh (Tab)">Modeling</button>
       <button class="tab" data-act="workspace" data-arg="sculpt" title="Sculpting: sculpt mode on the selected mesh">Sculpting</button>
-      <button class="tab" data-act="workspace" data-arg="paint" title="vertex painting on the selected mesh">Vertex Paint</button>
+      <button class="tab" data-act="workspace" data-arg="paint" title="Vertex painting on the selected mesh">Vertex Paint</button>
     </div>
 
     <button class="hbtn" data-act="render" title="Go to the camera view, then render (F12)">Render</button>
@@ -131,8 +132,9 @@
           <span><b id="modelabel">Object Mode</b> &#9662;</span>
           <div class="dd">
             <a data-act="mode" data-arg="object">Object Mode</a>
+            <a data-act="mode" data-arg="edit">Edit Mode <kbd>Tab</kbd></a>
             <a data-act="mode" data-arg="sculpt">Sculpt Mode</a>
-            <a data-act="mode" data-arg="paint">vertex Paint</a>
+            <a data-act="mode" data-arg="paint">Vertex Paint</a>
           </div>
         </div>
 
@@ -164,6 +166,19 @@
             <a data-act="frameall">Frame All <kbd>Home</kbd></a>
             <div class="dsep"></div>
             <a data-act="layout" data-arg="full">Toggle Maximize Area <kbd>Ctrl Space</kbd></a>
+          </div>
+        </div>
+
+        <div class="menu">
+          <span>Select</span>
+          <div class="dd">
+            <a data-act="select" data-arg="all">All <kbd>A</kbd></a>
+            <a data-act="select" data-arg="none">None <kbd>Alt A</kbd></a>
+            <a data-act="select" data-arg="invert">Invert <kbd>Ctrl I</kbd></a>
+            <div class="dsep"></div>
+            <a data-act="select" data-arg="linked">Select Linked <kbd>L</kbd></a>
+            <a data-act="select" data-arg="more">More <kbd>Ctrl +</kbd></a>
+            <a data-act="select" data-arg="less">Less <kbd>Ctrl -</kbd></a>
           </div>
         </div>
 
@@ -211,6 +226,43 @@
             <a data-act="duplicate">Duplicate Objects <kbd>Shift D</kbd></a>
             <a data-act="delete">Delete <kbd>X</kbd></a>
             <a data-act="hide">Hide <kbd>H</kbd></a>
+          </div>
+        </div>
+
+        <!-- Edit Mode: the Mesh menu replaces the Object menu -->
+        <div class="menu editonly" hidden>
+          <span>Mesh</span>
+          <div class="dd">
+            <a data-act="edit" data-arg="extrude">Extrude <kbd>E</kbd></a>
+            <a data-act="edit" data-arg="inset">Inset Faces <kbd>I</kbd></a>
+            <a data-act="edit" data-arg="subdivide">Subdivide</a>
+            <a data-act="edit" data-arg="fill">Fill <kbd>F</kbd></a>
+            <a data-act="edit" data-arg="bevel">Bevel Edges <kbd>Ctrl B</kbd></a>
+            <a data-act="edit" data-arg="cut">Loop Cut (at position)</a>
+            <a data-act="edit" data-arg="cutsel">Loop Cut (through selection)</a>
+            <a data-act="edit" data-arg="bridge">Bridge Edge Loops</a>
+            <div class="dsep"></div>
+            <a data-act="edit" data-arg="merge">Merge <kbd>M</kbd></a>
+            <a data-act="edit" data-arg="duplicate">Duplicate</a>
+            <a data-act="edit" data-arg="separate">Separate <kbd>P</kbd></a>
+            <a data-act="edit" data-arg="delete">Delete <kbd>X</kbd></a>
+            <div class="dsep"></div>
+            <a data-act="edit" data-arg="smooth">Smooth Vertices</a>
+            <a data-act="edit" data-arg="sphere">To Sphere</a>
+            <a data-act="edit" data-arg="shrink">Shrink/Fatten <kbd>Alt S</kbd></a>
+            <div class="dsep"></div>
+            <div class="sub">
+              <span>Normals<i>&#9656;</i></span>
+              <div class="dd">
+                <a data-act="edit" data-arg="normals">Recalculate Outside <kbd>Shift N</kbd></a>
+                <a data-act="edit" data-arg="normalsin">Recalculate Inside</a>
+                <a data-act="edit" data-arg="flip">Flip</a>
+              </div>
+            </div>
+            <div class="sub">
+              <span>Clean Up<i>&#9656;</i></span>
+              <div class="dd"><a data-act="edit" data-arg="doubles">Merge by Distance</a></div>
+            </div>
           </div>
         </div>
 

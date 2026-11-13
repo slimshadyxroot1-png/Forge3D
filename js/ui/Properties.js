@@ -32,6 +32,7 @@ export class Properties {
     if (o.isMesh) html += this.modHtml(o);
     if (o.isCamera) html += this.cameraHtml();
     if (o.isLight) html += this.lightHtml(o);
+    if (this.a.mode === 'edit') html += this.editHtml();
     if (this.a.mode === 'sculpt' || this.a.mode === 'paint') {
       const paint = this.a.mode === 'paint';
       const pick = (id, title, items) => `<div class="grp"><label>${title}</label><select id="${id}">${
@@ -58,7 +59,7 @@ export class Properties {
   }
 
   bind(o) {
-    const q = id => this.el.querySelector(id);
+    const q = id => this.el.querySelector(id), opt = this.a.brush.opt;
     q('#pn').onchange = e => this.a.rename(o, e.target.value.trim() || o.name);
     this.el.querySelectorAll('[data-k]').forEach(i => i.onchange = () => this.edit(i));
 
@@ -72,12 +73,13 @@ export class Properties {
     this.el.querySelectorAll('[data-otool]').forEach(b => {
       b.onclick = () => { const [act, arg] = b.dataset.otool.split(':'); this.a.act(act, arg); };
     });
+    if (this.a.mode === 'edit') this.bindEdit();
     if (o.isCamera) this.bindCamera(o);
     if (o.isLight) this.bindLight(o);
     if (q('#br')) {
       q('#br').oninput = e => { opt.radius = +e.target.value; };
       q('#bs').oninput = e => { opt.strength = +e.target.value; };
-      q('#bsp').oninput = e => { opt.space = +e.target.value; };
+      q('#bsp').oninput = e => { opt.spacing = +e.target.value; };
       q('#bf').onchange = e => { opt.falloff = e.target.value; };
       this.el.querySelectorAll('[data-sym]').forEach(c => { c.onchange = () => { opt.sym[+c.dataset.sym] = c.checked; }; });
     }
@@ -143,6 +145,65 @@ export class Properties {
         a.engine.invalidate();
       });
     });
+  }
+
+  editHtml() {
+    const btn = (op, label) => `<button data-eop="${op}">${label}</button>`;
+    const num = (id, title, step) => `<div class="grp"><label>${title}</label><input type="number" id="${id}" step="${step}"></div>`;
+    return `<h4>Edit Mode</h4>
+      <div class="grp btns">${['vertex', 'edge', 'face'].map(m => `<button data-emode="${m}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}</div>
+      <div class="grp btns">${btn('extrude', 'Extrude')}${btn('inset', 'Inset')}${btn('subdivide', 'Subdivide')}</div>
+      <div class="grp btns">${btn('merge', 'Merge')}${btn('duplicate', 'Duplicate')}${btn('separate', 'Separate')}</div>
+      <div class="grp btns">${btn('delete', 'Delete')}${btn('flip', 'Flip Normals')}</div>
+      <div class="grp btns">${btn('bevel', 'Bevel (Ctrl B)')}${btn('bridge', 'Bridge Edge Loops')}</div>
+      ${num('ebev', 'Bevel Width', 0.01)}${num('ebseg', 'Bevel Segments', 1)}
+      <div class="grp"><label>Loop Cut (cuts the mesh with a plane)</label>
+        <select id="ecax"><option value="0">X</option><option value="1">Y</option><option value="2">Z</option></select></div>
+      ${num('ecpos', 'Cut Position', 0.05)}
+      <div class="grp btns">${btn('cut', 'Cut at Position')}${btn('cutsel', 'Cut Through Selection')}</div>
+      <div class="grp btns">${btn('fill', 'Fill (F)')}${btn('doubles', 'Merge by Distance')}</div>
+      <div class="grp btns">${btn('smooth', 'Smooth Points')}${btn('sphere', 'To Sphere')}${btn('shrink', 'Shrink / Fatten')}</div>
+      <div class="grp btns">${btn('normals', 'Normals Out')}${btn('normalsin', 'Normals In')}</div>
+      <div class="grp btns">${btn('all', 'All')}${btn('none', 'None')}${btn('invert', 'Invert')}</div>
+      <div class="grp btns">${btn('linked', 'Linked (L)')}${btn('more', 'More')}${btn('less', 'Less')}</div>
+      ${num('eext', 'Extrude Distance', 0.1)}${num('eshr', 'Shrink / Fatten Distance (negative shrinks)', 0.05)}${num('eins', 'Inset Amount (0 to 0.9)', 0.05)}
+      <div class="grp"><label><input type="checkbox" id="emir">Mirror X (moves the opposite points too)</label></div>
+      <div class="grp"><label><input type="checkbox" id="eprop">Proportional Editing (O): nearby points follow</label></div>
+      ${num('eprad', 'Proportional Radius', 0.1)}
+      <div class="grp"><span id="estat"></span></div>`;
+  }
+
+  bindEdit() {
+    const a = this.a, q = id => this.el.querySelector(id);
+    this.el.querySelectorAll('[data-eop]').forEach(b => { b.onclick = () => a.act('edit', b.dataset.eop); });
+    this.el.querySelectorAll('[data-emode]').forEach(b => { b.onclick = () => a.act('emode', b.dataset.emode); });
+    q('#eext').oninput = e => { a.editor.opt.extrude = +e.target.value || 0; };
+    q('#eins').oninput = e => { a.editor.opt.inset = Math.min(0.9, Math.max(0, +e.target.value || 0)); };
+    q('#eshr').oninput = e => { a.editor.opt.shrink = +e.target.value || 0; };
+    q('#ebev').oninput = e => { a.editor.opt.bevel = +e.target.value || 0.1; };
+    q('#ebseg').oninput = e => { a.editor.opt.bsegs = Math.max(1, Math.min(8, Math.round(+e.target.value) || 1)); };
+    q('#ecax').onchange = e => { a.editor.opt.cutAxis = +e.target.value; };
+    q('#ecpos').oninput = e => { a.editor.opt.cutPos = +e.target.value || 0; };
+    q('#emir').onchange = e => { a.editor.opt.mirror = e.target.checked; };
+    q('#eprop').onchange = e => { a.editor.opt.prop = e.target.checked; };
+    q('#eprad').oninput = e => { a.editor.opt.propR = Math.max(0.001, +e.target.value || 1); };
+  }
+
+  syncEdit() {
+    const ed = this.a.editor, q = id => this.el.querySelector(id);
+    if (!q('#eext')) return; // the panel is not built yet
+    this.el.querySelectorAll('[data-emode]').forEach(b => b.classList.toggle('on', b.dataset.emode === ed.selMode));
+    if (document.activeElement !== q('#eext')) q('#eext').value = ed.opt.extrude;
+    if (document.activeElement !== q('#eins')) q('#eins').value = ed.opt.inset;
+    if (document.activeElement !== q('#eshr')) q('#eshr').value = ed.opt.shrink;
+    if (document.activeElement !== q('#ebev')) q('#ebev').value = ed.opt.bevel;
+    if (document.activeElement !== q('#ebseg')) q('#ebseg').value = ed.opt.bsegs;
+    if (document.activeElement !== q('#ecpos')) q('#ecpos').value = ed.opt.cutPos;
+    q('#ecax').value = ed.opt.cutAxis;
+    q('#emir').checked = ed.opt.mirror;
+    q('#eprop').checked = ed.opt.prop;
+    if (document.activeElement !== q('#eprad')) q('#eprad').value = ed.opt.propR;
+    q('#estat').textContent = `Selected: ${ed.verts.size} points, ${ed.edges.size} edges, ${ed.faces.size} faces`;
   }
 
   cameraHtml() {
@@ -260,6 +321,7 @@ export class Properties {
       const shadow = this.el.querySelector('#ls');
       if (shadow) shadow.checked = o.castShadow;
     }
+    if (this.a.mode === 'edit') this.syncEdit();
     const opt = this.a.brush.opt;
     put('#br', opt.radius); put('#bs', opt.strength); put('#bt', opt.type); put('#bc', opt.color);
     put('#bsp', opt.spacing); put('#bf', opt.falloff); put('#brad', opt.radial);
