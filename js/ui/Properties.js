@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { snap } from '../core/Engine.js';
 import { lightType, refreshGizmo } from '../scene/Lights.js';
 import { MODIFIERS, evaluate } from '../scene/Modifiers.js';
+import { applyTiling } from '../scene/Textures.js';
 import { fovFromLength, refreshCameraGizmo } from '../scene/Cameras.js';
 import { BRUSHES } from '../tools/Brush.js';
 
@@ -33,6 +34,7 @@ export class Properties {
     if (o.isCamera) html += this.cameraHtml();
     if (o.isLight) html += this.lightHtml(o);
     if (this.a.mode === 'edit') html += this.editHtml();
+    if (this.a.mode === 'texpaint') html += this.texPaintHtml(slider);
     if (this.a.mode === 'sculpt' || this.a.mode === 'paint') {
       const paint = this.a.mode === 'paint';
       const pick = (id, title, items) => `<div class="grp"><label>${title}</label><select id="${id}">${
@@ -94,6 +96,16 @@ export class Properties {
       const a = this.a;
       this.el.querySelectorAll('[data-mask]').forEach(b => { b.onclick = () => a.brush.maskOp(b.dataset.mask); });
       this.el.querySelectorAll('[data-detail]').forEach(b => { b.onclick = () => (b.dataset.detail === 'subdivide' ? a.brush.subdivideMesh() : a.brush.smoothMesh()); });
+      if (q('#tpc')) { // texture paint panel
+        const tp = a.textpaint.opt;
+        q('#tpc').oninput = e => { tp.color = e.target.value; };
+        q('#tpr').oninput = e => { tp.radius = +e.target.value; };
+        q('#tps').oninput = e => { tp.strength = +e.target.value; };
+        q('#tpe').onchange = e => { tp.erase = e.target.checked; };
+        this.el.querySelectorAll('[data-tp]').forEach(b => {
+          b.onclick = () => (b.dataset.tp === 'fill' ? a.texpaint.fill(tp.erase ? '#ffffff' :  tp.color) : a.texpaint.exportPNG(a.sel));
+        });
+      }
     }
   }
 
@@ -104,6 +116,26 @@ export class Properties {
       <div class="grp"><label>Set Origin</label><div class="btns">${b('origin:geometry', 'To Geometry')}${b('origin:mass', 'To Center of Mass')}</div></div>
       <div class="grp"><label>Shading</label><div class="btns">${b('shademesh:smooth', 'Shade Smooth')}${b('shademesh:flat', 'Shade Flat')}</div></div>
       <div class="grp"><label>Combine with another mesh</label><div class="btns">${b('join', 'Join (Ctrl J)')}${b('boolean', 'Boolean...')}</div></div>`;
+  }
+
+  textureHTML() {
+    const slot = (id, title) => `<div class="grp"><label>${title} <span id="s-${id}"></span></label>
+      <div class="btns"><button id="b-${id}">Load...</button><button id="x-${id}">Remove</button><button id="v-${id}">Save</button></div></div>`;
+    const num = (id, title, step) => `<div class="grp"><label>${title}</label><input type="number" id="${id}" step="${step}"></div>`;
+    return `<h4>Texture</h4>${slot('map', 'Base Color Map')}${slot('normal', 'Normal Map')}
+      ${num('ttile', 'Tiling', 0.1)}${num('trot', 'Rotation (degrees)', 5)}`;
+  }
+
+  bindTexture(o) {
+    const q = id => this.el.querySelector(id), m = o.material, a = this.a;
+    q('#b-map').onclick = () => a.loadTexture(o, 'map');
+    q('#x-map').onclick = () => a.loadTexture(o, 'map', true);
+    q('#b-normal').onclick = () => a.loadTexture(o, 'normalMap');
+    q('#x-normal').onclick = () => a.loadTexture(o, 'normalMap', true);
+    q('#v-map').onclick = () => a.exportTexture(o, 'map');
+    q('#v-normal').onclick = () => a.exportTexture(o, 'normalMap');
+    this.bindLive(q('#title'), () => String(m.userData.tiling ?? 1), v => { m.userData.tiling = +v || 1; applyTiling(m); a.engine.invalidate(); });
+    this.bindLive(q('#trot'), () => String(m.userData.rotation ?? 0), v => { m.userData.rotation = +v || 0; applyTiling(m); a.engine.invalidate(); });
   }
 
   modHtml(o) {
@@ -145,6 +177,15 @@ export class Properties {
         a.engine.invalidate();
       });
     });
+  }
+
+  texPaintHtml(slider) {
+    return `<h4>Texture Paint</h4>
+      <div class="grp"><label>Color</label><input type="color" id="tpc"></div>
+      ${slider('tpr', 'Radius (pixels)', 4, 120)}${slider('tps', 'Strength', 0.05, 1)}
+      <div class="grp"><label><input type="checkbox" id="tpe">Eraser (paints white)</label></div>
+      <div class="grp btns"><button data-tp="fill">Fill</button><button data-tp="export">Export PNG</button></div>
+      <div class="empty">The mesh needs UVs. Use the UV Editor first.</div>`;
   }
 
   editHtml() {
@@ -309,6 +350,11 @@ export class Properties {
     }
     if (o.isMesh) {
       const m = o.material, stack = o.userData.modifiers || [];
+      const text = (id, t) => { const e = this.el.querySelector(id); if (e) e.textContent = t; };
+      put('#ttile', m.userData.tiling ?? 1);
+      put('#trot', m.userData.rotation ?? 0);
+      text('#s-map', m.map ? '(loaded)' : '');
+      text('#s-normal', m.normalMap ? '(loaded)' : '');
       this.el.querySelectorAll('[data-key]').forEach(el => {
         if (document.activeElement !== el) el.value = stack[+el.dataset.i]?.[el.dataset.key];
       });
@@ -327,6 +373,10 @@ export class Properties {
     put('#bsp', opt.spacing); put('#bf', opt.falloff); put('#brad', opt.radial);
     const tick = (id, v) => { const c = this.el.querySelector(id); if (c) c.checked = v; };
     tick('#bsub', opt.subtract); tick('#bpen', opt.pressure);
+    if (this.a.mode === 'texpaint') {
+      const tp = this.a.texpaint.opt;
+      put('#tpc', tp.color); put('#tpr', tp.radius); put('#tps', tp.strength); tick('#tpe', tp.erase);
+    }
     this.el.querySelectorAll('[data-sym]').forEach(c => { c.checked = opt.sym[+c.dataset.sym]; });
   }
 

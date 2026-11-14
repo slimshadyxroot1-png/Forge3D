@@ -7,6 +7,8 @@ import { renderViews, encode } from './io/Renderer.js';
 import { applyTransform, setOrigin, shade, joinObjects, booleanObjects } from './tools/ObjectTools.js';
 import { createCamera, cloneCamera } from './scene/Cameras.js';
 import { EditMode } from './tools/EditMode.js';
+import { unwrap, unwrapAngle, drawUV, uvTransformed, toggleChecker } from './tools/UV.js';
+import { TexPaint } from './tools/TexPaint.js';
 import { LIGHT_NAMES, createLight, cloneLight, lightType } from './scene/Lights.js';
 import { Outliner } from './ui/Outliner.js';
 import { Properties } from './ui/Properties.js';
@@ -14,6 +16,7 @@ import { bindShortcuts } from './ui/Shortcuts.js';
 import { Layout } from './ui/Layout.js';
 import { importFile, pickFiles } from './io/Importer.js';
 import { MODIFIERS, applyStack, baseOf, hasModifiers, copyModifiers, build, evaluate } from './scene/Modifiers.js';
+import { makeTexture, applyTiling, readImage } from './scene/Textures.js';
 
 const $ = s => document.querySelector(s);
 
@@ -33,6 +36,7 @@ class App {
     this.history = new History(() => this.refresh());
     this.brush = new Brush(this);
     this.editor = new EditMode(this);
+    this.texpaint = new TexPaint(this);
 
     e.onPick = o => this.select(o);
     e.onTransform = () => this.props.sync();
@@ -59,6 +63,7 @@ class App {
     this.initRender();
     this.syncCamAspect();
     $('#snapinc').onchange = ev => e.setSnap(e.snapOn, +ev.target.value);
+    this.initUV();
 
     // drop files on the page to import them
     addEventListener('dragover', ev => ev.preventDefault());
@@ -108,7 +113,7 @@ class App {
       hide: () => s && this.setVisible(s, false),
       frameall: () => e.frameAll(),
       layout: () => this.layout.toggle(arg),
-      workspace: () => this.setMode(arg),
+      workspace: () => (arg === 'uv' ? this.openUV() : this.setMode(arg)),
       dialog: () => this.openRender(),
       tool: () => this.setTool(arg),
       proj: () => e.setProjection(arg),
@@ -190,6 +195,54 @@ class App {
     pickFiles('.hdr').then(([file]) => { if (file) this.engine.setEnvironment('hdri', file); });
   }
 
+  // saves the image of a texture slot as a PNG
+  async exportTexture(mesh, slot) {
+    const tex = mesh.material[slot], canvas = tex?.userData.canvas;
+    if (!tex || (!canvas && !tex.userData.src)) return this.say('This texture can not be saved');
+    const blob = canvas ? await new Promise(done => canvas.toBlob(done, 'image/png')) : await (await fetch(tex.userData.src)).blob();
+    save(blob, `${mesh.name}-${slot}.png`, 'image/png');
+  }
+
+  // UV tools
+
+  initUV() {
+    const dlg = $('#uvdlg');
+    dlg.onclick = e => {
+      const b = e.target.closest('[data-uv]'), mesh = this.sel;
+      if (!b) return;
+      const op = b.dataset.uv;
+      if (op === 'close') return dlg.close();
+      if (!mesh?.isMesh) return;
+      if (op === 'checker') toggleChecker(mesh, this.engine);
+      else if (op === 'transform') {
+        this.transformUV(mesh, { scale: +$('#uvs').value || 1, rotate: +$('#uvr').value || 0, du: +$('#uvu').value || 0, dv: +$('#uvv').value || 0 });
+      } else this.unwrapMesh(mesh, op);
+      drawUV($('#uvcanvas'), mesh);
+    };
+  }
+
+  openUV() {
+    if (!this.sel?.isMesh) return this.say('Select a mesh first');
+    drawUV($('#uvcanvas'), this.sel);
+    $('#uvdlg').showModal();
+  }
+
+  unwrapMesh(mesh, method) {
+    if (this.mode !== 'object') return this.say('Go back to Object Mode first');
+    if (hasModifiers(mesh)) return this.say('Apply or remove the modifiers first');
+    const old = mesh.geometry, fresh = method === 'angle' ? unwrapAngle(mesh, +$('#uva').value || 66) : unwrap(mesh, method);
+    const set = g => { mesh.geometry = g; this.engine.invalidate(); };
+    this.history.do({ do: () => set(fresh), undo: () => set(old), dispose: done => (done ? old : fresh).dispose() });
+  }
+
+  transformUV(mesh, p) {
+    const attr = mesh.geometry.attributes.uv;
+    if (!attr) return this.say('Unwrap the mesh first');
+    const before = attr.array.slice(), after = uvTransformed(attr, p);
+    const set = arr => { attr.array.set(arr); attr.needsUpdate = true; this.engine.invalidate(); };
+    this.history.do({ do: () => set(after), undo: () => set(before) });
+  }
+
   // node editors
 
   // Changing the modifier list is undoable
@@ -231,6 +284,19 @@ class App {
       console.error(err);
       this.say(`Could not apply: ${err.message}`);
     }
+  }
+
+  // load or remove an image for the base color or normal map
+  async loadTexture(mesh, slot, remove = false) {
+    const m = mesh.material, old = m[slot];
+    let tex = null;
+    if (!remove) {
+      const [file] = await pickFiles('image/*');
+      if (!file) return;
+      tex = makeTexture(await readImage(file), slot === 'map');
+    }
+    const set = t => { m[slot] = t; applyTiling(m); m.needsUpdate = true; this.engine.invalidate(); };
+    this.history.do({ do: () => set(tex), undo: () => set(old) });
   }
 
   // add several objects as one undo step

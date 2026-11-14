@@ -85,7 +85,9 @@
       <button class="tab" data-act="workspace" data-arg="object" title="Layout: object mode">Layout</button>
       <button class="tab" data-act="workspace" data-arg="edit" title="Modeling: edit mode on the selected mesh (Tab)">Modeling</button>
       <button class="tab" data-act="workspace" data-arg="sculpt" title="Sculpting: sculpt mode on the selected mesh">Sculpting</button>
+      <button class="tab" data-act="workspace" data-arg="uv" title="UV Editing: unwrap the selected mesh">UV Editing</button>
       <button class="tab" data-act="workspace" data-arg="paint" title="Vertex painting on the selected mesh">Vertex Paint</button>
+      <button class="tab" data-act="workspace" data-arg="texpaint" title="Texture Paint: paint into the texture image (needs UVs)">Texture Paint</button>
     </div>
 
     <button class="hbtn" data-act="render" title="Go to the camera view, then render (F12)">Render</button>
@@ -135,6 +137,7 @@
             <a data-act="mode" data-arg="edit">Edit Mode <kbd>Tab</kbd></a>
             <a data-act="mode" data-arg="sculpt">Sculpt Mode</a>
             <a data-act="mode" data-arg="paint">Vertex Paint</a>
+            <a data-act="mode" data-arg="texpaint">Texture Paint</a>
           </div>
         </div>
 
@@ -347,6 +350,31 @@
     <span id="hint"></span>
     <span id="stat"></span>
   </footer>
+
+  <!-- UV editor -->
+  <dialog id="uvdlg">
+    <h3>UV Editor</h3>
+    <div class="rcols">
+      <div class="form">
+        <canvas id="uvcanvas" width="320" height="320"></canvas>
+      </div>
+      <div class="form">
+        <span class="lbl">Unwrap</span>
+        <div class="btns"><button data-uv="box">Box</button><button data-uv="smart">Smart (6 sides)</button></div>
+        <div class="btns"><button data-uv="planar">Planar</button><button data-uv="sphere">Sphere</button><button data-uv="cylinder">Cylinder</button></div>
+        <button data-uv="angle">Smart UV Project (by angle)</button>
+        <label>Angle limit (degrees)<input type="number" id="uva" value="66" step="1"></label>
+        <button data-uv="checker">UV Grid Preview (on / off)</button>
+        <span class="lbl">Transform all UVs</span>
+        <label>Scale<input type="number" id="uvs" value="1" step="0.1"></label>
+        <label>Rotate (degrees)<input type="number" id="uvr" value="0" step="5"></label>
+        <label>Move U<input type="number" id="uvu" value="0" step="0.05"></label>
+        <label>Move V<input type="number" id="uvv" value="0" step="0.05"></label>
+        <button data-uv="transform">Apply Transform</button>
+      </div>
+    </div>
+    <div class="actions"><span></span><button data-uv="close">Close</button></div>
+  </dialog>
 
   <!-- Render settings and finished renders -->
   <dialog id="renderdlg">
