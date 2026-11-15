@@ -9,6 +9,10 @@ import { createCamera, cloneCamera } from './scene/Cameras.js';
 import { EditMode } from './tools/EditMode.js';
 import { unwrap, unwrapAngle, drawUV, uvTransformed, toggleChecker } from './tools/UV.js';
 import { TexPaint } from './tools/TexPaint.js';
+import { makePresetMaterial } from './scene/Presets.js';
+import { NodeEditor } from './ui/NodeEditor.js';
+import { MATERIAL_NODES, defaultMaterialGraph, applyMaterialGraph } from './scene/MaterialNodes.js';
+import { GEO_NODES, defaultGeoGraph } from './scene/GeoNodes.js';
 import { LIGHT_NAMES, createLight, cloneLight, lightType } from './scene/Lights.js';
 import { Outliner } from './ui/Outliner.js';
 import { Properties } from './ui/Properties.js';
@@ -64,6 +68,7 @@ class App {
     this.syncCamAspect();
     $('#snapinc').onchange = ev => e.setSnap(e.snapOn, +ev.target.value);
     this.initUV();
+    $('#nclose').onclick = () => $('#nodedlg').close();
 
     // drop files on the page to import them
     addEventListener('dragover', ev => ev.preventDefault());
@@ -113,7 +118,9 @@ class App {
       hide: () => s && this.setVisible(s, false),
       frameall: () => e.frameAll(),
       layout: () => this.layout.toggle(arg),
-      workspace: () => (arg === 'uv' ? this.openUV() : this.setMode(arg)),
+      workspace: () => (['uv', 'shading', 'geonodes'].includes(arg)
+        ? { uv: () => this.openUV(), shading: () => this.openShading(), geonodes: () => this.openGeoNodesTab() }[arg]()
+        : this.setMode(arg)),
       dialog: () => this.openRender(),
       tool: () => this.setTool(arg),
       proj: () => e.setProjection(arg),
@@ -191,6 +198,14 @@ class App {
 
   // materials, lights and environment
 
+  // replaces the material with a ready made one
+  applyPreset(mesh, name) {
+    if (this.mode !== 'object') return this.say('Go back to Object Mode first');
+    const old = mesh.material, next = makePresetMaterial(old, name);
+    const set = m => { mesh.material = m; this.engine.applyShading(); this.props.cur = undefined; };
+    this.history.do({ do: () => set(next), undo: () => set(old), dispose: done => (done ? old : next).dispose() });
+  }
+
   loadHDRI() {
     pickFiles('.hdr').then(([file]) => { if (file) this.engine.setEnvironment('hdri', file); });
   }
@@ -244,6 +259,58 @@ class App {
   }
 
   // node editors
+
+  trackGraph(graph, apply) {
+    let last = JSON.stringify(graph);
+    return () => {
+      const now = JSON.stringify(graph), before = last;
+      if (now === before) return;
+      last = now;
+      const set = text => {
+        Object.assign(graph, JSON.parse(text)); // same object, new nodes and links
+        last = text;
+        apply();
+        if (this.nodeEditor?.graph === graph) this.nodeEditor.load(graph);
+      };
+      this.history.push({ do: () => set(now), undo: () => set(before) });
+    };
+  }
+
+  showNodes(title, defs, graph, onChange) {
+    $('#ntitle').textContent = title;
+    $('#nodedlg').showModal();
+    this.nodeEditor = new NodeEditor($('#nodeed'), defs, onchange);
+    this.nodeEditor.load(graph);
+  }
+
+  openShading() {
+    const mesh = this.sel;
+    if (!mesh?.isMesh) return this.say('Select a mesh first');
+    mesh.material.userData.nodes ||= defaultMaterialGraph(mesh);
+    const graph = mesh.material.userData.nodes;
+    const apply = () => {
+      try { applyMaterialGraph(mesh, graph); } catch (err) { console.error(err); return this.say(err.message); }
+      this.engine.applyShading();
+      this.props.cur = undefined; // the material may have been replaced
+    };
+    const record = this.trackGraph(graph, () => { apply(); this.refresh(); });
+    this.showNodes('Shading: Material Nodes', MATERIAL_NODES, graph, () => { apply(); record(); this.dirty = true; this.refresh(); });
+  }
+
+  openGeoNodes(mesh, i) {
+    const mod = mesh.userData.modifiers[i];
+    mod.graph ||= defaultGeoGraph();
+    const record = this.trackGraph(mod.graph, () => { evaludate(mesh); this.refresh(); });
+    this.showNodes('Geometry Nodes', GEO_NODES, mod.graph, () => { evaludate(mesh); record(); this.dirty = true; this.refresh(); });
+  }
+
+  openGeoNodesTab() {
+    const mesh = this.sel;
+    if (!mesh?.isMesh) return this.say('Select a mesh first');
+    if (this.mode !== 'object') return this.say('Go back to Object Mode first');
+    if (!mesh.userData.modifiers?.some(m => m.type === 'nodes')) this.addModifier(mesh, 'nodes');
+    this.openGeoNodes(mesh, mesh.userData.modifiers.findIndex(m => m.type === 'nodes'));
+  }
 
   // Changing the modifier list is undoable
   setModifiers(mesh, next, nextBase = null) {

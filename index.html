@@ -88,6 +88,8 @@
       <button class="tab" data-act="workspace" data-arg="uv" title="UV Editing: unwrap the selected mesh">UV Editing</button>
       <button class="tab" data-act="workspace" data-arg="paint" title="Vertex painting on the selected mesh">Vertex Paint</button>
       <button class="tab" data-act="workspace" data-arg="texpaint" title="Texture Paint: paint into the texture image (needs UVs)">Texture Paint</button>
+      <button class="tab" data-act="workspace" data-arg="shading" title="Shading: material node editor">Shading</button>
+      <button class="tab" data-act="workspace" data-arg="geonodes" title="Geometry Nodes: procedural modeling">Geometry Nodes</button>
     </div>
 
     <button class="hbtn" data-act="render" title="Go to the camera view, then render (F12)">Render</button>
@@ -374,6 +376,12 @@
       </div>
     </div>
     <div class="actions"><span></span><button data-uv="close">Close</button></div>
+  </dialog>
+
+  <!-- Node editor, used for materials and geometry nodes -->
+  <dialog id="nodedlg">
+    <div class="nhead"><h3 id="ntitle">Nodes</h3><button id="nclose">Close</button></div>
+    <div id="noded"></div>
   </dialog>
 
   <!-- Render settings and finished renders -->

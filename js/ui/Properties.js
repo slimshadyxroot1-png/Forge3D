@@ -5,6 +5,7 @@ import { MODIFIERS, evaluate } from '../scene/Modifiers.js';
 import { applyTiling } from '../scene/Textures.js';
 import { fovFromLength, refreshCameraGizmo } from '../scene/Cameras.js';
 import { BRUSHES } from '../tools/Brush.js';
+import { PRESETS } from '../scene/Presets.js';
 
 export class Properties {
   constructor(app, el) { this.a = app; this.el = el; this.cur = undefined; this.mode = null; }
@@ -26,6 +27,7 @@ export class Properties {
 
     if (o.isMesh) {
       html += `<h4>Material</h4>
+        <div class="grp"><select id="mpreset"><option value="">Preset...</option${Object.keys(PRESETS).map(k => `<option>${k}</option>`).join('')}</select></div>
         <div class="grp"><label>Color</label><input type="color" id="mc"></div>
         ${slider('mr', 'Roughness', 0, 1)}${slider('mm', 'Metallic', 0, 1)}`;
     }
@@ -70,6 +72,7 @@ export class Properties {
       this.bindLive(q('#mc'), () => '#' + m.color.getHexString(), v => m.color.set(v));
       this.bindLive(q('#mr'), () => String(m.roughness), v => { m.roughness = +v; });
       this.bindLive(q('#mm'), () => String(m.metalness), v => { m.metalness = +v; });
+      q('#mpreset').onchange = e => { if (e.target.value) this.apply(o, e.target.value); };
     }
     if (o.isMesh) this.bindMods(o);
     this.el.querySelectorAll('[data-otool]').forEach(b => {
@@ -161,6 +164,7 @@ export class Properties {
   bindMods(o) {
     const a = this.a, stack = o.userData.modifiers || [];
     this.el.querySelector('#addmod').onchange = e => { if (e.target.value) a.addModifier(o, e.target.value); };
+    this.el.querySelector('[data-nodes]').forEach(b => { b.onclick = () => a.openGeoNodes(o, +b.dataset.nodes); });
     this.el.querySelectorAll('[data-op]').forEach(el => {
       const i = +el.dataset.i, op = el.dataset.op;
       if (op === 'toggle') el.onchange = () => a.toggleModifier(o, i);
