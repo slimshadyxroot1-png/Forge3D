@@ -8,6 +8,8 @@ export function bindShortcuts(app) {
     if (e.ctrlKey || e.metaKey) {
       if (k === 'z') { e.preventDefault(); e.shiftKey ? app.history.redo() : app.history.undo(); }
       else if (k === 'y') { e.preventDefault(); app.history.redo(); }
+      else if (k === 's') { e.preventDefault(); app.act('project', e.shiftKey ? 'saveAs' : 'save'); }
+      else if (k === 'o') { e.preventDefault(); app.act('project', 'open'); }
       else if (e.code === 'Space') { e.preventDefault(); app.act('layout', 'full'); }
       else if (e.code === 'Numpad0') { e.preventDefault(); app.act(e.altKey ? 'aligncam' : 'setcamera'); }
       else if (k === 'i' && app.mode === 'edit') { e.preventDefault(); app.act('select', 'invert'); }

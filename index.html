@@ -29,6 +29,14 @@
     <div class="menu">
       <span>File</span>
       <div class="dd">
+        <a data-act="project" data-arg="newProject">New</a>
+        <a data-act="project" data-arg="open">Open... <kbd>Ctrl O</kbd></a>
+        <a data-act="project" data-arg="showRecent">Open Recent...</a>
+        <div class="dsep"></div>
+        <a data-act="project" data-arg="save">Save <kbd>Ctrl S</kbd></a>
+        <a data-act="project" data-arg="saveAs">Save As... <kbd>Ctrl Shift S</kbd></a>
+        <a data-act="project" data-arg="download">Save Copy (.forge3d)</a>
+        <div class="dsep"></div>
         <div class="sub">
           <span>Import<i>&#9656;</i></span>
           <div class="dd">
@@ -92,6 +100,7 @@
       <button class="tab" data-act="workspace" data-arg="geonodes" title="Geometry Nodes: procedural modeling">Geometry Nodes</button>
     </div>
 
+    <span id="proj" title="Project name" (* means unsaved changes)"></span>
     <button class="hbtn" data-act="render" title="Go to the camera view, then render (F12)">Render</button>
   </header>
 
@@ -352,6 +361,27 @@
     <span id="hint"></span>
     <span id="stat"></span>
   </footer>
+
+  <!-- Saved projects and old versions -->
+  <dialog id="recent">
+    <h3>Recent Projects</h3>
+    <div id="recentlist"></div>
+    <div class="actions">
+      <span></span>
+      <button id="recentclose">Close</button>
+    </div>
+  </dialog>
+
+  <!-- Shown on start up when unsaved work was found -->
+  <dialog id="recover">
+    <h3>Recover Project</h3>
+    <div class="from"><span id="recovermsg"></span></div>
+    <div class="actions">
+      <span></span>
+      <button id="recoverno">Discard</button>
+      <button id="recoveryes" class="on">Recover</button>
+    </div>
+  </dialog>
 
   <!-- UV editor -->
   <dialog id="uvdlg">

@@ -18,6 +18,7 @@ import { Outliner } from './ui/Outliner.js';
 import { Properties } from './ui/Properties.js';
 import { bindShortcuts } from './ui/Shortcuts.js';
 import { Layout } from './ui/Layout.js';
+import { ProjectManager } from './io/ProjectManager.js';
 import { importFile, pickFiles } from './io/Importer.js';
 import { MODIFIERS, applyStack, baseOf, hasModifiers, copyModifiers, build, evaluate } from './scene/Modifiers.js';
 import { makeTexture, applyTiling, readImage } from './scene/Textures.js';
@@ -32,6 +33,7 @@ class App {
   projectName = 'Untitled';
   camActive = null; // the camera used for "Scene Camera" renders
   gallery = []; // finished renders
+  dirty = false; // true when there is work that is not saved
 
   constructor() {
     const e = this.engine = new Engine($('#viewport'));
@@ -64,6 +66,7 @@ class App {
     e.onCamera = () => { this.updateViewText(); };
     e.onFrame = r => this.drawFrame(r);
     e.onCamView = () => this.updateUI();
+    this.project = new ProjectManager(this);
     this.initRender();
     this.syncCamAspect();
     $('#snapinc').onchange = ev => e.setSnap(e.snapOn, +ev.target.value);
@@ -77,6 +80,7 @@ class App {
     this.setTool('move');
     this.startScene();
     this.refresh();
+    this.project.checkRecovery();
   }
 
   act(name, arg) {
@@ -114,6 +118,7 @@ class App {
       select: () => (this.mode === 'edit' ? this.editor.run(arg) : arg === 'none' ? this.select(null) : this.say(arg === 'all' || arg === 'invert' ? 'Objects are selected one at a time' : 'This works in Edit Mode')),
       fullscreen: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()),
       addmod: () => s?.isMesh && this.addModifier(s, arg),
+      project: () => this.project[arg](),
       importfiles: () => pickFiles('.glb,.gltf,.obj,.stl,.ply,.fbx,.forge3d').then(f => this.importFiles(f)),
       hide: () => s && this.setVisible(s, false),
       frameall: () => e.frameAll(),
@@ -386,12 +391,22 @@ class App {
   async importFiles(files) {
     for (const f of files) {
       try {
+        if (f.name.toLowerCase().endsWith('.forge3d')) { if (this.project.ok()) await this.project.openFile(f); }
         this.insertMany(await importFile(f));
       } catch (err) {
         console.error(err);
         this.say(`Could not import ${f.name}: ${err.message}`);
       }
     }
+  }
+
+  // empties the scene and frees the memory
+  clearScene() {
+    this.engine.exitCameraView(false);
+    this.select(null);
+    const w = this.engine.world;
+    [...w.children].forEach(o => { w.remove(o); disposeObject(o); });
+    this.history.clear();
   }
 
   renderSettings() {
@@ -655,6 +670,7 @@ class App {
     this.updateViewText();
   }
   refresh() {
+    $('#proj').textContent = this.projectName + (this.dirty ? ' *' : '');
     this.outliner.render();
     this.props.render();
     this.updateUI();
