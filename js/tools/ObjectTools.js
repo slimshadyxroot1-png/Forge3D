@@ -158,3 +158,32 @@ const loadFont = () => fontPromise ||= Promise.all([
   new FontLoader().load('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/fonts/helvetiker_bold.typeface.json', font => ok({ font, TextGeometry }), undefined, fail);
 })).catch(err => { fontPromise = null; throw err; });
 
+async function textGeometry(opt) {
+  const { font, TextGeometry } = await loadFont();
+  const g = new TextGeometry(opt.text || ' ', { font, size: opt.size, height: opt.depth, curveSegments: 8, bevelEnabled: false });
+  g.center();
+  g.computeVertexNormals();
+  g.userData = { text: { ...opt } }; // saved with the project
+  return g;
+}
+
+// Add > Text
+export async function addText(app) {
+  try {
+    const opt = { text: 'Text', size: 1, depth: 0.2 };
+    const m = new THREE.Mesh(await textGeometry(opt), new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.5, metalness: 0 }));
+    m.name = 'Text'; m.userData.type = 'Text'; m.castShadow = m.receiveShadow = true;
+    m.position.copy(app.engine.cursorObj.position);
+    app.insert(m);
+  } catch (err) {
+    console.error(err);
+    app.say('Could not load the text font. Text needs an internet connection');
+  }
+}
+
+// change the words, size or thickness of a text object
+export async function editText(app, mesh, change) {
+  if (!needPlain(app, mesh)) return;
+  const old = mesh.geometry.userData.text; if (!old) return;
+  try { swap(app, mesh, await textGeometry({ ...old, ...change })); } catch { app.say('Could not load the text font'); }
+}

@@ -30,13 +30,18 @@ export class Engine {
     this.worldLight = new THREE.HemisphereLight(0x808080, 0x808080, 3); this.worldLight.position.set(0, 0, 1); s.add(this.worldLight);
     // the 3D cursor: new objects appear here
     const cur = this.cursorObj = new THREE.Group();
-    const rightPts = Array.from({ length: 49 }, (_, i) => new THREE.Vector3(Math.cos(i / 48 * Math.PI * 2), Math.sin(i / 48 * Math.PI * 2), 0));
+    const ringPts = Array.from({ length: 49 }, (_, i) => new THREE.Vector3(Math.cos(i / 48 * Math.PI * 2), Math.sin(i / 48 * Math.PI * 2), 0));
     const lineMat = c => new THREE.LineBasicMaterial({ color: c, depthTest: false, transparent: true });
-    cur.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(rightPts), lineMat(0xff3030)));
-    for (const [a, b] of [[[-1.6, 0, 0], [-0.6, 0, 0]], [[0.6, 0, 0], [1.6, 0, 0]], [[0, -1.6, 0], [0, -0.6, 0]], [[0, 0.6, 0], [0, 1.6, 0]], [[0, 0, -1.6], [0, 0, -0.6], [0, 0, 1.6]]])
+    cur.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPts), lineMat(0xff3030)));
+    for (const [a, b] of [[[-1.6, 0, 0], [-0.6, 0, 0]], [[0.6, 0, 0], [1.6, 0, 0]], [[0, -1.6, 0], [0, -0.6, 0]], [[0, 0.6, 0], [0, 1.6, 0]], [[0, 0, -1.6], [0, 0, -0.6]], [[0, 0, 0.6], [0, 0, 1.6]]])
       cur.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]), lineMat(0xffffff)));
     cur.traverse(o => { o.renderOrder = 998; });
     s.add(cur);
+
+    // the line drawn by the Measure tool
+    this.measureObj = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0xffd23f, depthTest: false, transparent: true }));
+    this.measureObj.renderOrder = 998; this.measureObj.visible = false; this.measureObj.frustumCulled = false;
+    s.add(this.measureObj);
 
     this.grid = createGrid(); s.add(this.grid);
     this.persp = new THREE.PerspectiveCamera(40, 1, .1, 1000);
@@ -206,6 +211,22 @@ export class Engine {
 
   // Transform Orientation: 'world'
   setOrient(space) { this.orient = space; this.tc.setSpace(space); this.invalidate(); }
+
+  // the point under the mouse: on a mesh, or on the floor
+  pickPoint(e) {
+    const rc = this._rc ||= new THREE.Raycaster(), b = this.renderer.domElement.getBoundingClientRect();
+    rc.setFromCamera(new THREE.Vector2((e.clientX - b.left) / b.width * 2 - 1, -(e.clientY - b.top) / b.height * 2 + 1), this.camera);
+    const hit = rc.intersectObjects(this.world.children.filter(c => c.visible), true).find(h => h.object.isMesh);
+    if (hit) return hit.point.clone();
+    return rc.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), new THREE.Vector3());
+  }
+
+  setMeasure(a, b) {
+    const m = this.measureObj;
+    m.visible = !!(a && b);
+    if (a && b) { m.geometry.setFromPoints([a, b]); m.geometry.computeBoundingSphere(); }
+    this.invalidate();
+  }
 
   // World lighting from the render settings
   setWorld(color, strength) {

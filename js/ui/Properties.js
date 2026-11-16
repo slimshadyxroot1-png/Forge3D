@@ -6,6 +6,7 @@ import { applyTiling } from '../scene/Textures.js';
 import { fovFromLength, refreshCameraGizmo } from '../scene/Cameras.js';
 import { BRUSHES } from '../tools/Brush.js';
 import { PRESETS } from '../scene/Presets.js';
+import { editText } from '../tools/ObjectTools.js';
 
 export class Properties {
   constructor(app, el) { this.a = app; this.el = el; this.cur = undefined; this.mode = null; }
@@ -31,6 +32,7 @@ export class Properties {
         <div class="grp"><label>Color</label><input type="color" id="mc"></div>
         ${slider('mr', 'Roughness', 0, 1)}${slider('mm', 'Metallic', 0, 1)}`;
     }
+    if (o.isMesh && o.geometry.userData?.text && this.a.mode === 'object') html += this.textToolsHtml(o);
     if (o.isMesh && this.a.mode === 'object') html += this.objectToolsHtml();
     if (o.isMesh) html += this.modHtml(o);
     if (o.isCamera) html += this.cameraHtml();
@@ -74,7 +76,12 @@ export class Properties {
       this.bindLive(q('#mm'), () => String(m.metalness), v => { m.metalness = +v; });
       q('#mpreset').onchange = e => { if (e.target.value) this.apply(o, e.target.value); };
     }
-    if (o.isMesh) this.bindMods(o);
+    if (o.isMesh) { this.bindTexture(o); this.bindMods(o); }
+    const tt = this.el.querySelector('#ttext');
+    if (tt) {
+      const go = () => editText(this.a, o, { text: this.el.querySelector('#ttext').value, size: +this.el.querySelector('#tsize').value || 1, depth: +this.el.querySelector("#tdepth").value || 0.2 });
+      ['#ttext', '#tsize', '#tdepth'].forEach(id => { this.el.querySelector(id).onchange = go; });
+    }
     this.el.querySelectorAll('[data-otool]').forEach(b => {
       b.onclick = () => { const [act, arg] = b.dataset.otool.split(':'); this.a.act(act, arg); };
     });
@@ -110,6 +117,14 @@ export class Properties {
         });
       }
     }
+  }
+
+  textToolsHtml(o) {
+    const t = o.geometry.userData.text;
+    return `<h4>Text</h4>
+      <div class="grp"><label>Words</label><input id="ttext" type="text" value="${String(t.text).replace(/"/g, '&quot;')}"></div>
+      <div class="grp"><label>Size</label><input id="tsize" type="number" step="0.1" min="0.05" value="${t.size}"></div>
+      <div class="grp"><label>Thickness</label><input id="tdepth" type="number" step="0.05" min="0.01" value="${t.depth}"></div>`;
   }
 
   objectToolsHtml() {

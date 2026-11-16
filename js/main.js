@@ -4,8 +4,9 @@ import { PRIMS, createPrimitive, uniqueName, disposeObject } from './scene/Primi
 import { Brush } from './tools/Brush.js';
 import { exportScene, save } from './io/Exporter.js';
 import { renderViews, encode } from './io/Renderer.js';
-import { applyTransform, setOrigin, shade, joinObjects, booleanObjects } from './tools/ObjectTools.js';
+import { applyTransform, setOrigin, shade, joinObjects, booleanObjects, addText } from './tools/ObjectTools.js';
 import { createCamera, cloneCamera } from './scene/Cameras.js';
+import { runSelfTest } from './dev/SelfTest.js';
 import { EditMode } from './tools/EditMode.js';
 import { unwrap, unwrapAngle, drawUV, uvTransformed, toggleChecker } from './tools/UV.js';
 import { TexPaint } from './tools/TexPaint.js';
@@ -22,6 +23,8 @@ import { ProjectManager } from './io/ProjectManager.js';
 import { importFile, pickFiles } from './io/Importer.js';
 import { MODIFIERS, applyStack, baseOf, hasModifiers, copyModifiers, build, evaluate } from './scene/Modifiers.js';
 import { makeTexture, applyTiling, readImage } from './scene/Textures.js';
+import { Palette } from './ui/Palette.js';
+import { NavGizmo } from './ui/NavGizmo.js';
 
 const $ = s => document.querySelector(s);
 
@@ -39,12 +42,12 @@ class App {
     const e = this.engine = new Engine($('#viewport'));
     this.outliner = new Outliner(this, $('#outliner'));
     this.props = new Properties(this, $('#props'));
-    this.history = new History(() => this.refresh());
+    this.history = new History(() => { this.dirty = true; this.refresh(); });
     this.brush = new Brush(this);
     this.editor = new EditMode(this);
     this.texpaint = new TexPaint(this);
 
-    e.onPick = o => this.select(o);
+    e.onPick = o => { if (this.tool !== 'measure') this.select(o); };
     e.onTransform = () => this.props.sync();
     e.onTransformEnd = (o, a, b) => this.commitTransform(o, a, b);
 
@@ -53,6 +56,7 @@ class App {
     const MESH_ORDER = ['Plane', 'Cube', 'Circle', 'UV Sphere', 'Icosphere', 'Cylinder', 'Cone', 'Torus', 'Grid'];
     $('#adddd').innerHTML =
       sub('Mesh', MESH_ORDER.filter(k => k in PRIMS).map(k => `<a data-act="add" data-arg="${k}">${k === 'Icosphere' ? 'Ico Sphere' : k}</a>`).join('')) +
+      '<a data-act="addtext">Text</a>' +
       sub('Light', Object.entries(LIGHT_NAMES).map(([k, n]) => `<a data-act="addlight" data-arg="${k}">${n}</a>`).join('')) +
       '<a data-act="addcamera">Camera</a>';
 
@@ -63,13 +67,17 @@ class App {
     });
 
     this.layout = new Layout();
-    e.onCamera = () => { this.updateViewText(); };
+    this.palette = new Palette(this);
+    this.gizmo = new NavGizmo($('#vp'), e, this);
+    e.onCamera = () => { this.gizmo.update(); this.updateViewText(); this.updateMeasure(); };
     e.onFrame = r => this.drawFrame(r);
     e.onCamView = () => this.updateUI();
     this.project = new ProjectManager(this);
     this.initRender();
+    this.initMeasure();
     this.syncCamAspect();
     $('#snapinc').onchange = ev => e.setSnap(e.snapOn, +ev.target.value);
+    this.initContext();
     this.initUV();
     $('#nclose').onclick = () => $('#nodedlg').close();
 
@@ -110,6 +118,8 @@ class App {
       shademesh: () => shade(this, s, arg === 'smooth'),
       join: () => joinObjects(this, s),
       boolean: () => booleanObjects(this, s),
+      applymenu: () => this.showApplyMenu(),
+      addtext: () => addText(this),
       cursor: () => this.moveCursor(arg),
       tocursor: () => this.selectionToCursor(),
       snap: () => { e.setSnap(!e.snapOn, e.snapInc); },
@@ -117,11 +127,13 @@ class App {
       xray: () => e.setShading(e.shading === 'xray' ? 'solid' : 'xray'),
       select: () => (this.mode === 'edit' ? this.editor.run(arg) : arg === 'none' ? this.select(null) : this.say(arg === 'all' || arg === 'invert' ? 'Objects are selected one at a time' : 'This works in Edit Mode')),
       fullscreen: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.()),
+      selftest: () => runSelfTest(this),
       addmod: () => s?.isMesh && this.addModifier(s, arg),
       project: () => this.project[arg](),
       importfiles: () => pickFiles('.glb,.gltf,.obj,.stl,.ply,.fbx,.forge3d').then(f => this.importFiles(f)),
       hide: () => s && this.setVisible(s, false),
       frameall: () => e.frameAll(),
+      palette: () => this.palette.open(),
       layout: () => this.layout.toggle(arg),
       workspace: () => (['uv', 'shading', 'geonodes'].includes(arg)
         ? { uv: () => this.openUV(), shading: () => this.openShading(), geonodes: () => this.openGeoNodesTab() }[arg]()
@@ -153,6 +165,41 @@ class App {
   }
 
   // Measure tool: click two points
+
+  initMeasure() {
+    const dom = this.engine.renderer.domElement;
+    this.measure = [];
+    let down = null;
+    dom.addEventListener('pointerdown', e => { down = e.button === 0 ? [e.clientX, e.clientY] : null; });
+    dom.addEventListener('pointerup', e => {
+      if (this.tool !== 'measure' || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+      const pt = this.engine.pickPoint(e);
+      if (!pt) return;
+      if (this.measure.length >= 2) this.measure = [];
+      this.measure.push(pt);
+      this.updateMeasure(true);
+    });
+  }
+
+  updateMeasure(announce = false) {
+    const label = $('#measure'), [a, b] = this.measure || [];
+    if (this.tool !== 'measure' || !a) { label.style.display = 'none'; this.engine.setMeasure(null, null); return; }
+    this.engine.setMeasure(a, b);
+    const to = b || a, rect = this.engine.renderer.domElement.getBoundingClientRect();
+    const mid = b ? a.clone().add(b).multiplyScalar(0.5) : a.clone();
+    const p = mid.project(this.engine.camera);
+    Object.assign(label.style, { display: 'block', left: ((p.x + 1) / 2 * rect.width) + 'px', top: ((1 - p.y) / 2 * rect.height) + 'px' });
+    label.textContent = b ? `${a.distanceTo(to).toFixed(3)}  (X ${Math.abs(b.x - a.x).toFixed(3)}, Y ${Math.abs(b.y - a.y).toFixed(3)}, Z ${Math.abs(b.z - a.z).toFixed(3)})` : 'Click the second point';
+    if (announce && b) this.say(`Distance: ${a.distanceTo(b).toFixed(4)}`);
+  }
+
+  // Ctrl A: choose what to apply
+  showApplyMenu() {
+    if (!this.sel?.isMesh) return this.say('Select a mesh first');
+    const it = (l, a) => `<a data-act="apply" data-arg="${a}">${l}</a>`;
+    const [x, y] = this.mouse || [innerWidth / 2, innerHeight / 2];
+    this.ctxMenu(it('Location', 'location') + it('Rotation', 'rotation') + it('Scale', 'scale') + it('All Transforms', 'all'), x, y);
+  }
 
   toggleAdd(open) { $('#addm').classList.toggle('open', open); }
 
@@ -284,7 +331,7 @@ class App {
   showNodes(title, defs, graph, onChange) {
     $('#ntitle').textContent = title;
     $('#nodedlg').showModal();
-    this.nodeEditor = new NodeEditor($('#nodeed'), defs, onchange);
+    this.nodeEditor = new NodeEditor($('#nodeed'), defs, onChange);
     this.nodeEditor.load(graph);
   }
 
@@ -305,8 +352,8 @@ class App {
   openGeoNodes(mesh, i) {
     const mod = mesh.userData.modifiers[i];
     mod.graph ||= defaultGeoGraph();
-    const record = this.trackGraph(mod.graph, () => { evaludate(mesh); this.refresh(); });
-    this.showNodes('Geometry Nodes', GEO_NODES, mod.graph, () => { evaludate(mesh); record(); this.dirty = true; this.refresh(); });
+    const record = this.trackGraph(mod.graph, () => { evaluate(mesh); this.refresh(); });
+    this.showNodes('Geometry Nodes', GEO_NODES, mod.graph, () => { evaluate(mesh); record(); this.dirty = true; this.refresh(); });
   }
 
   openGeoNodesTab() {
@@ -392,7 +439,7 @@ class App {
     for (const f of files) {
       try {
         if (f.name.toLowerCase().endsWith('.forge3d')) { if (this.project.ok()) await this.project.openFile(f); }
-        this.insertMany(await importFile(f));
+        else this.insertMany(await importFile(f));
       } catch (err) {
         console.error(err);
         this.say(`Could not import ${f.name}: ${err.message}`);
@@ -440,6 +487,16 @@ class App {
     l.position.set(4.08, 1.01, 5.9);
     l.intensity = 150;
     return l;
+  }
+
+  // a new scene starts with a camera and a light
+  startScene() {
+    this.engine.exitCameraView(false);
+    const cam = createCamera('Camera');
+    cam.position.set(7.36, -6.93, 4.96);
+    cam.lookAt(0, 0, 0);
+    this.engine.world.add(cam, this.defaultLight());
+    this.camActive = cam;
   }
 
   // a message in the middle of the viewport
@@ -556,6 +613,40 @@ class App {
     });
   }
 
+  // right click menu in the viewport
+  initContext() {
+    const menu = $('#ctx'), dom = this.engine.renderer.domElement;
+    const item = (label, act, arg = '') => `<a data-act="${act}" data-arg="${arg}">${label}</a>`;
+    let from = null, moved = false;
+    const hide = () => menu.classList.remove('open');
+
+    dom.addEventListener('pointermove', e => { this.mouse = [e.clientX, e.clientY]; });
+    this.ctxMenu = (html, x, y) => { menu.innerHTML = html; menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.classList.add('open'); };
+    dom.addEventListener('pointerdown', e => {
+      hide();
+      if (e.button === 2) { from = [e.clientX, e.clientY]; moved = false; }
+    });
+    dom.addEventListener('pointermove', e => {
+      if (from && e.buttons & 2 && Math.hypot(e.clientX - from[0], e.clientY - from[1]) > 4) { moved = true; hide(); }
+    });
+    dom.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      if (moved) return; // it was a pan, not a click
+      if (e.shiftKey) { const pt = this.engine.pickPoint(e); if (pt) { this.engine.cursorObj.position.copy(pt); this.engine.invalidate(); this.say('3D cursor moved. New objects appear here (Shift C: back to the middle)'); } return; }
+      menu.innerHTML = this.sel
+        ? item('Duplicate', 'duplicate') + item('Hide', 'hide') + item('Frame Selected', 'frame') +
+          (this.sel.isMesh && this.mode === 'object' ? item('Shade Smooth', 'shademesh', 'smooth') + item('Shade Flat', 'shademesh', 'flat') + item('Apply All Transforms', 'apply', 'all') + item('Set Origin to Geometry', 'origin', 'geometry') : '') +
+          item('Delete', 'delete')
+        : item('Add Cube', 'add', 'Cube') + item('Add UV Sphere', 'add', 'UV Sphere') + item('Add Plane', 'add', 'Plane') +
+          item('Add Point Light', 'addlight', 'point') + item('Search Commands...', 'palette');
+      menu.style.left = e.clientX + 'px';
+      menu.style.top = e.clientY + 'px';
+      menu.classList.add('open');
+    });
+    menu.addEventListener('click', hide);
+    addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+  }
+
   // the render window
   initRender() {
     const q = id => $(id), go = q('#rgo'), msg = q('#rmsg');
@@ -638,18 +729,14 @@ class App {
     this.history.push({ do: () => restore(o, b), undo: () => restore(o, a) });
   }
 
-  // a new scene starts with a camera and a light
-  startScene() {
-    this.engine.exitCameraView(false);
-    const cam = createCamera('Camera');
-    cam.position.set(7.36, -6.93, 4.96);
-    cam.lookAt(0, 0, 0);
-    this.engine.world.add(cam, this.defaultLight());
-    this.camActive = cam;
-  }
+  // highlight the buttons that are active
   updateUI() {
     const e = this.engine;
-    const on = { tool: this.tool, proj: e.projection, shade: e.shading, mode: this.mode, workspace: this.mode, xray: e.shading === 'xray' ? 'x' : '', camlock: e.camLock ? 'x' : '', snap: e.snapOn ? 'x' : '', orient: e.orient === 'local' ? 'x' : '' };
+    const on = {
+      tool: this.tool, proj: e.projection, shade: e.shading, mode: this.mode, workspace: this.mode,
+      xray: e.shading === 'xray' ? 'x' : '', camlock: e.camLock ? 'x' : '',
+      snap: e.snapOn ? 'x' : '', orient: e.orient === 'local' ? 'x' : '',
+    };
     const undo = $('#undo-btn'), redo = $('#redo-btn');
     if (undo) undo.disabled = !this.history?.u.length;
     if (redo) redo.disabled = !this.history?.r.length;
@@ -668,7 +755,9 @@ class App {
         : 'Camera view | Wheel: zoom the view only | Dragging leaves the camera view | Numpad 0: back')
       : 'Orbit: left drag (Object mode) or right drag (Edit / Sculpt / Paint) | Shift + drag: pan | Alt or Space + left drag: orbit | Wheel: zoom';
     this.updateViewText();
+    this.updateMeasure();
   }
+
   refresh() {
     $('#proj').textContent = this.projectName + (this.dirty ? ' *' : '');
     this.outliner.render();
@@ -688,7 +777,6 @@ class App {
       `Objects ${w.children.length}   |   Vertices ${verts}   |   Triangles ${tris}   |   ${this.sel ? this.sel.name : 'No selection'}`;
     this.engine.invalidate();
   }
-
 }
 
 window.app = new App();

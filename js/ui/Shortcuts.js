@@ -8,6 +8,7 @@ export function bindShortcuts(app) {
     if (e.ctrlKey || e.metaKey) {
       if (k === 'z') { e.preventDefault(); e.shiftKey ? app.history.redo() : app.history.undo(); }
       else if (k === 'y') { e.preventDefault(); app.history.redo(); }
+      else if (k === 'k') { e.preventDefault(); app.act('palette'); }
       else if (k === 's') { e.preventDefault(); app.act('project', e.shiftKey ? 'saveAs' : 'save'); }
       else if (k === 'o') { e.preventDefault(); app.act('project', 'open'); }
       else if (e.code === 'Space') { e.preventDefault(); app.act('layout', 'full'); }
@@ -15,6 +16,7 @@ export function bindShortcuts(app) {
       else if (k === 'i' && app.mode === 'edit') { e.preventDefault(); app.act('select', 'invert'); }
       else if (k === 'b' && app.mode === 'edit') { e.preventDefault(); app.act('edit', 'bevel'); }
       else if (k === 'l' && app.mode === 'edit') { e.preventDefault(); app.act('select', 'linked'); }
+      else if (k === 'a' && app.mode === 'object') { e.preventDefault(); app.act('applymenu'); }
       else if (k === 'j' && app.mode === 'object') { e.preventDefault(); app.act('join'); }
       else if (app.mode === 'edit' && (e.code === 'NumpadAdd' || e.key === '+' || e.key === '=')) { e.preventDefault(); app.act('select', 'more'); }
       else if (app.mode === 'edit' && (e.code === 'NumpadSubtract' || e.key === '-')) { e.preventDefault(); app.act('select', 'less'); }
@@ -44,6 +46,7 @@ export function bindShortcuts(app) {
     else if (k === 'home') app.act('frameall');
     else if (k === 'n') app.act('layout', 'sidebar');
     else if (k === 't') app.act('layout', 'tools');
+    else if (k === 'f3') { e.preventDefault(); app.act('palette'); }
     else if (k === 'f12') { e.preventDefault(); app.act('render'); }
     else if (k === 'f11') { e.preventDefault(); app.act('renderdlg'); }
     else if (k === 'h') app.act('hide');

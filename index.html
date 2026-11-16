@@ -65,6 +65,8 @@
       <div class="dd">
         <a data-act="undo">Undo <kbd>Ctrl Z</kbd></a>
         <a data-act="redo">Redo <kbd>Ctrl Shift Z</kbd></a>
+        <div class="dsep"></div>
+        <a data-act="palette">Menu Search... <kbd>F3</kbd></a>
       </div>
     </div>
 
@@ -88,6 +90,14 @@
       </div>
     </div>
 
+    <div class="menu">
+      <span>Help</span>
+      <div class="dd">
+        <a data-act="palette">Menu Search... <kbd>F3</kbd></a>
+        <a data-act="selftest">Run Self-Test</a>
+      </div>
+    </div>
+
     <!-- Workspaces -->
     <div class="tabs">
       <button class="tab" data-act="workspace" data-arg="object" title="Layout: object mode">Layout</button>
@@ -100,7 +110,7 @@
       <button class="tab" data-act="workspace" data-arg="geonodes" title="Geometry Nodes: procedural modeling">Geometry Nodes</button>
     </div>
 
-    <span id="proj" title="Project name" (* means unsaved changes)"></span>
+    <span id="proj" title="Project name (* means unsaved changes)"></span>
     <button class="hbtn" data-act="render" title="Go to the camera view, then render (F12)">Render</button>
   </header>
 
@@ -136,6 +146,12 @@
         </svg>
       </button>
     
+      <button data-act="tool" data-arg="measure" title="Measure: click two points to see the distance">
+        <svg viewBox="0 0 16 16">
+          <path d="M1.5 11.5l9-9 4 4-9 9zM4 9l1.5 1.5M6 7l1.5 1.5M8 5l1.5 1.5"
+                fill="none" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+      </button>
     </aside>
 
     <!-- 3D viewport -->
@@ -322,6 +338,7 @@
       <!-- Three.js canvas is inserted here -->
       <div id="viewport"><div id="camframe"></div></div>
       <div id="toast"></div>
+      <div id="measure"></div>
 
       <!-- Shown while looking through the camera -->
       <div id="cambar" hidden>
@@ -375,7 +392,7 @@
   <!-- Shown on start up when unsaved work was found -->
   <dialog id="recover">
     <h3>Recover Project</h3>
-    <div class="from"><span id="recovermsg"></span></div>
+    <div class="form"><span id="recovermsg"></span></div>
     <div class="actions">
       <span></span>
       <button id="recoverno">Discard</button>
@@ -411,8 +428,17 @@
   <!-- Node editor, used for materials and geometry nodes -->
   <dialog id="nodedlg">
     <div class="nhead"><h3 id="ntitle">Nodes</h3><button id="nclose">Close</button></div>
-    <div id="noded"></div>
+    <div id="nodeed"></div>
   </dialog>
+
+  <!-- Command search -->
+  <dialog id="palette">
+    <input id="pq" placeholder="Search commands..." autocomplete="off">
+    <div id="plist"></div>
+  </dialog>
+
+  <!-- Right click menu, filled in by js/main.js -->
+  <div class="dd" id="ctx"></div>
 
   <!-- Render settings and finished renders -->
   <dialog id="renderdlg">
